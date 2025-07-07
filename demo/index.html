@@ -16,12 +16,64 @@
     import { html, render } from 'lit';
     import '../dist/src/am-lyrics.js';
 
-    const header = 'Hello owc World!';
+    let animationFrameId;
+    let songStartTime = 0;
+    let systemStartTime = 0;
+
+    function stopAnimation() {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    }
+
+    function animate() {
+      const amLyrics = document.querySelector('am-lyrics');
+      if (!amLyrics) return;
+
+      const elapsedTime = Date.now() - systemStartTime;
+      amLyrics.currentTime = songStartTime + elapsedTime;
+
+      animationFrameId = requestAnimationFrame(animate);
+    }
+
+    function startPlayback() {
+      stopAnimation();
+      songStartTime = 0;
+      systemStartTime = Date.now();
+      animate();
+    }
+
+    function handleLineClick(e) {
+      stopAnimation();
+      songStartTime = e.detail.timestamp;
+      systemStartTime = Date.now();
+      animate();
+    }
+
+    function handleSearch() {
+      const searchInput = document.querySelector('#search-input');
+      const amLyrics = document.querySelector('am-lyrics');
+      if (searchInput && amLyrics) {
+        amLyrics.query = searchInput.value;
+        amLyrics.isrc = '';
+        amLyrics.musicId = '';
+      }
+    }
+
     render(
       html`
-        <am-lyrics .header=${header}>
-          some light-dom
-        </am-lyrics>
+        <div>
+          <input id="search-input" type="text" placeholder="Search for a song" />
+          <button @click=${handleSearch}>Search</button>
+        </div>
+        <am-lyrics
+          query="Shallow"
+          isrc="USUM71813192"
+          duration="215737"
+          @line-click=${handleLineClick}
+        ></am-lyrics>
+        <button @click=${startPlayback}>Start</button>
       `,
       document.querySelector('#demo')
     );
