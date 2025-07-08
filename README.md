@@ -5,8 +5,9 @@ This webcomponent follows the [open-wc](https://github.com/open-wc/open-wc) reco
 ## Installation
 
 ```bash
-npm install am-lyrics
+npm install am-lyrics # For react users and those crazy enough to not use the CDN
 ```
+
 
 Or, just use the CDN.
 
@@ -14,7 +15,7 @@ Or, just use the CDN.
 
 ```html
 <script type="module">
-  import 'https://cdn.jsdelivr.net/npm/am-lyrics@latest/dist/src/am-lyrics.min.js';
+  import 'https://cdn.jsdelivr.net/npm/@uimaxbai/am-lyrics@latest/dist/src/am-lyrics.min.js';
 </script>
 
 <am-lyrics
@@ -40,6 +41,60 @@ Or, just use the CDN.
   @line-click=${handleLineClick}    // Event listener for line clicks to skip to that part of the song.
 ></am-lyrics>
 -->
+```
+
+### For React Users
+
+First, ensure you have `react` and `@lit/react` installed in your project.
+
+```bash
+npm install react @lit/react
+```
+
+Then, you can import the `AmLyrics` component from `am-lyrics/react` and use it in your components.
+
+```jsx
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { AmLyrics } from 'am-lyrics/react';
+
+function App() {
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+
+  // Sync audio player time with the component
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime * 1000); // Convert to milliseconds
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+  }, []);
+
+  // Handle line clicks to seek the audio
+  const handleLineClick = useCallback(event => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = event.detail.timestamp / 1000; // Convert to seconds
+      audio.play();
+    }
+  }, []);
+
+  return (
+    <div>
+      <audio ref={audioRef} src="path/to/your/song.mp3" controls />
+      <AmLyrics
+        query="Uptown Funk"
+        currentTime={currentTime}
+        onLineClick={handleLineClick}
+        autoscroll
+      />
+    </div>
+  );
+}
 ```
 
 The timer needs to be defined by yourself. For example:
