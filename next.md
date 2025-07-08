@@ -45,10 +45,14 @@ module.exports = withLitSSR(nextConfig);
 ```tsx
 // Put me at the start of the file: above the React example in README.md.
 import dynamic from 'next/dynamic';
-import '@uimaxbai/am-lyrics/am-lyrics.js';
 
 const AmLyrics = dynamic(
-  () => import('@uimaxbai/am-lyrics/react').then((mod) => mod.AmLyrics),
+  () => {
+    // Dynamically import the custom element
+    import('@uimaxbai/am-lyrics/am-lyrics.js');
+    // Then import the React component
+    return import('@uimaxbai/am-lyrics/react').then((mod) => mod.AmLyrics);
+  },
   { ssr: false }
 );
 ```
