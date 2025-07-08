@@ -3,17 +3,51 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+  <!-- Bring your own fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+
   <style>
     body {
-      background: #fafafa;
+      background: #fafafa; /* Any background works out of the box */
     }
   </style>
 </head>
 <body>
-  <div id="demo"></div>
+  <div>
+    <input id="search-input" type="text" placeholder="Search for a song" />
+    <button id="search-button">Search</button>
+  </div>
+
+  <am-lyrics
+    query="Uptown Funk"
+    music-id=""
+    isrc=""
+    duration=""
+    highlight-color="#f00"
+    hide-source-footer="false"
+    font-family="'Inter', Arial, sans-serif"
+    autoscroll
+  ></am-lyrics>
+  <!--
+  <am-lyrics
+    query="Uptown Funk"               // Search Apple Music for a song
+    music-id=""                       // Use this if you have a specific song ID from Apple Music (almost never)
+    isrc=""                           // To be used WITH a query, just to double check if it is correct
+    duration=""                       // Duration of your timer (the component takes it in and syncs to the words. See JS below)
+    highlight-color="#000"            // Color of the highlighted words
+    hide-source-footer="false"        // Controls whether the footer at the bottom is a larger one or a more compact GitHub link.
+    font-family="'Inter', sans-serif" // BYOF
+    autoscroll                        // Self-explanatory
+    @line-click=${handleLineClick}    // Event listener for line clicks to skip to that part of the song.
+  ></am-lyrics>
+  -->
+
+  <button id="start-button">Start</button>
 
   <script type="module">
-    import { html, render } from 'lit';
     import '../dist/src/am-lyrics.js';
 
     let animationFrameId;
@@ -61,22 +95,23 @@
       }
     }
 
-    render(
-      html`
-        <div>
-          <input id="search-input" type="text" placeholder="Search for a song" />
-          <button @click=${handleSearch}>Search</button>
-        </div>
-        <am-lyrics
-          query="Shallow"
-          isrc="USUM71813192"
-          duration="215737"
-          @line-click=${handleLineClick}
-        ></am-lyrics>
-        <button @click=${startPlayback}>Start</button>
-      `,
-      document.querySelector('#demo')
-    );
+    document.addEventListener('DOMContentLoaded', () => {
+      const amLyrics = document.querySelector('am-lyrics');
+      const searchButton = document.querySelector('#search-button');
+      const startButton = document.querySelector('#start-button');
+
+      if (amLyrics) {
+        amLyrics.addEventListener('line-click', handleLineClick);
+      }
+
+      if (searchButton) {
+        searchButton.addEventListener('click', handleSearch);
+      }
+
+      if (startButton) {
+        startButton.addEventListener('click', startPlayback);
+      }
+    });
   </script>
 </body>
 </html>

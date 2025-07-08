@@ -1,6 +1,3 @@
-/* eslint-disable no-plusplus */
-/* eslint-disable lit-a11y/click-events-have-key-events */
-/* eslint-disable no-nested-ternary */
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
@@ -84,9 +81,9 @@ export class AmLyrics extends LitElement {
       color: var(--highlight-color, #000); /* Highlight color to black */
       overflow: hidden;
       /* Spring animation */
-      transition: width 0.25s cubic-bezier(0.25, 0.1, 0.25, 1.5);
+      transition: width 0.05s cubic-bezier(0.25, 0.1, 0.25, 1.5);
       white-space: nowrap;
-      transition: var(--transition-style, all) 0.25s;
+      transition: var(--transition-style, all) 0.05s;
     }
 
     .active-word {
@@ -108,6 +105,34 @@ export class AmLyrics extends LitElement {
     .progress-text:last-child {
       margin-right: 0 !important; /* Remove margin for the last word */
     }
+
+    .lyrics-footer {
+      text-align: left;
+      font-size: 0.8em;
+      color: #888;
+      padding: 10px 0;
+      border-top: 1px solid #eee;
+      margin-top: 10px;
+    }
+
+    .lyrics-footer p {
+      margin: 5px 0;
+    }
+
+    .lyrics-footer a {
+      color: #555;
+      text-decoration: none;
+    }
+
+    .lyrics-footer a:hover {
+      text-decoration: underline;
+    }
+
+    .lyrics-footer.compact {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+    }
   `;
 
   @property({ type: String })
@@ -118,6 +143,15 @@ export class AmLyrics extends LitElement {
 
   @property({ type: String })
   isrc?: string;
+
+  @property({ type: String, attribute: 'highlight-color' })
+  highlightColor = '#000';
+
+  @property({ type: Boolean, attribute: 'hide-source-footer' })
+  hideSourceFooter = false;
+
+  @property({ type: String, attribute: 'font-family' })
+  fontFamily?: string;
 
   @property({ type: Boolean })
   autoScroll = true;
@@ -195,6 +229,9 @@ export class AmLyrics extends LitElement {
         }
         const lyricsData: LyricsResponse = await lyricsResponse.json();
         this.lyrics = lyricsData.content;
+        if (this.lyricsContainer) {
+          this.lyricsContainer.scrollTop = 0;
+        }
       } catch (e) {
         console.error('Error fetching lyrics', e);
       }
@@ -216,9 +253,10 @@ export class AmLyrics extends LitElement {
     }
 
     if (changedProperties.has('currentTime') && this.lyrics) {
+      const oldActiveLineIndex = this.activeLineIndex;
       let lineIdx = -1;
 
-      for (let i = 0; i < this.lyrics.length; i++) {
+      for (let i = 0; i < this.lyrics.length; i += 1) {
         if (
           this.currentTime >= this.lyrics[i].timestamp &&
           this.currentTime <= this.lyrics[i].endtime
@@ -235,7 +273,7 @@ export class AmLyrics extends LitElement {
 
         // Find active main word
         let mainWordIdx = -1;
-        for (let i = 0; i < line.text.length; i++) {
+        for (let i = 0; i < line.text.length; i += 1) {
           if (
             this.currentTime >= line.text[i].timestamp &&
             this.currentTime <= line.text[i].endtime
@@ -262,7 +300,7 @@ export class AmLyrics extends LitElement {
         // Find active background word
         let backWordIdx = -1;
         if (line.backgroundText) {
-          for (let i = 0; i < line.backgroundText.length; i++) {
+          for (let i = 0; i < line.backgroundText.length; i += 1) {
             if (
               this.currentTime >= line.backgroundText[i].timestamp &&
               this.currentTime <= line.backgroundText[i].endtime
@@ -293,7 +331,7 @@ export class AmLyrics extends LitElement {
         this.backgroundWordProgress = 0;
       }
 
-      if (this.autoScroll && changedProperties.has('currentTime')) {
+      if (this.autoScroll && this.activeLineIndex !== oldActiveLineIndex) {
         this.scrollToActiveLine();
       }
     }
@@ -330,6 +368,10 @@ export class AmLyrics extends LitElement {
   }
 
   render() {
+    if (this.fontFamily) {
+      this.style.fontFamily = this.fontFamily;
+    }
+
     return html`
       <div class="lyrics-container">
         ${this.lyrics?.map((line, lineIndex) => {
@@ -341,6 +383,12 @@ export class AmLyrics extends LitElement {
                 ? 'opposite-turn'
                 : ''} ${isLineActive ? 'active-line' : ''}"
               @click=${() => this.handleLineClick(line)}
+              tabindex="0"
+              @keydown=${(e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  this.handleLineClick(line);
+                }
+              }}
             >
               <span>
                 ${line.text.map((syllable, wordIndex) => {
@@ -351,11 +399,12 @@ export class AmLyrics extends LitElement {
                     (wordIndex < this.activeMainWordIndex ||
                       (this.activeMainWordIndex === -1 &&
                         this.currentTime > syllable.endtime));
-                  const progress = isWordActive
-                    ? this.mainWordProgress
-                    : isWordPassed
-                      ? 1
-                      : 0;
+                  let progress = 0;
+                  if (isWordActive) {
+                    progress = this.mainWordProgress;
+                  } else if (isWordPassed) {
+                    progress = 1;
+                  }
 
                   return html`<span
                     class="progress-text"
@@ -364,7 +413,7 @@ export class AmLyrics extends LitElement {
                       ? '0'
                       : '.5ch'}; --transition-style: ${isLineActive
                       ? 'all'
-                      : 'color'}"
+                      : 'color'}; --highlight-color: ${this.highlightColor}"
                     data-text="${syllable.text}${syllable.part ? ' ' : ''}"
                     >${syllable.text}</span
                   >`;
@@ -381,11 +430,12 @@ export class AmLyrics extends LitElement {
                         (wordIndex < this.activeBackgroundWordIndex ||
                           (this.activeBackgroundWordIndex === -1 &&
                             this.currentTime > syllable.endtime));
-                      const progress = isWordActive
-                        ? this.backgroundWordProgress
-                        : isWordPassed
-                          ? 1
-                          : 0;
+                      let progress = 0;
+                      if (isWordActive) {
+                        progress = this.backgroundWordProgress;
+                      } else if (isWordPassed) {
+                        progress = 1;
+                      }
 
                       return html`<span
                         class="progress-text"
@@ -394,7 +444,7 @@ export class AmLyrics extends LitElement {
                           ? '0'
                           : '.5ch'}; --transition-style: ${isLineActive
                           ? 'all'
-                          : 'color'}"
+                          : 'color'}; --highlight-color: ${this.highlightColor}"
                         data-text="${syllable.text}"
                         >${syllable.text}</span
                       >`;
@@ -405,6 +455,15 @@ export class AmLyrics extends LitElement {
           `;
         })}
       </div>
+      <footer class="lyrics-footer ${this.hideSourceFooter ? '' : 'compact'}">
+        ${!this.hideSourceFooter ? '' : html`<p>Source: Apple Music</p>`}
+        <a
+          href="https://github.com/uimaxbai/apple-music-web-components"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Star me on GitHub
+        </a>
+      </footer>
     `;
   }
 }
