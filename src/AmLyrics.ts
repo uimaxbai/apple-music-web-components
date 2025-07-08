@@ -1,6 +1,8 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
+const VERSION = '0.4.1';
+
 interface Syllable {
   text: string;
   part: boolean;
@@ -160,6 +162,9 @@ export class AmLyrics extends LitElement {
   @property({ type: Boolean })
   autoScroll = true;
 
+  @property({ type: Boolean })
+  interpolate = true;
+
   @property({ type: Number })
   duration?: number;
 
@@ -222,7 +227,6 @@ export class AmLyrics extends LitElement {
             `${baseURL}searchAppleMusic.php?q=${search}`,
           );
           if (!searchResponse.ok) {
-            console.error('Search failed', searchResponse);
             return;
           }
           const decoded = await searchResponse.json();
@@ -236,7 +240,6 @@ export class AmLyrics extends LitElement {
             appleID = decoded[0].id;
           }
         } catch (e) {
-          console.error('Error during search', e);
           return;
         }
       }
@@ -247,7 +250,6 @@ export class AmLyrics extends LitElement {
             `${baseURL}getAppleMusicLyrics.php?id=${appleID}`,
           );
           if (!lyricsResponse.ok) {
-            console.error('Failed to get lyrics', lyricsResponse);
             return;
           }
           const lyricsData: LyricsResponse = await lyricsResponse.json();
@@ -256,7 +258,7 @@ export class AmLyrics extends LitElement {
             this.lyricsContainer.scrollTop = 0;
           }
         } catch (e) {
-          console.error('Error fetching lyrics', e);
+          //
         }
       }
     } finally {
@@ -279,107 +281,165 @@ export class AmLyrics extends LitElement {
     }
 
     if (changedProperties.has('currentTime') && this.lyrics) {
-      const oldActiveLineIndex = this.activeLineIndex;
-      const oldActiveMainWordIndex = this.activeMainWordIndex;
-      const oldActiveBackgroundWordIndex = this.activeBackgroundWordIndex;
+      const oldTime = (changedProperties.get('currentTime') as number) ?? 0;
+      const timeDiff = Math.abs(this.currentTime - oldTime);
 
-      let lineIdx = -1;
+      const newLineIndex = this.findActiveLineIndex(this.currentTime);
 
-      for (let i = 0; i < this.lyrics.length; i += 1) {
+      // Reset animation if line changes or if we skip time.
+      // A threshold of 0.5s (500ms) is used to detect a "skip".
+      if (newLineIndex !== this.activeLineIndex || timeDiff > 0.5) {
+        this.startAnimationFromTime(this.currentTime);
+      }
+      // For small, continuous updates, we do nothing and let the animation loop handle it.
+    }
+
+    if (
+      this.autoScroll &&
+      changedProperties.has('activeLineIndex') &&
+      this.activeLineIndex !== -1
+    ) {
+      this.scrollToActiveLine();
+    }
+  }
+
+  private findActiveLineIndex(time: number): number {
+    if (!this.lyrics) return -1;
+    for (let i = 0; i < this.lyrics.length; i += 1) {
+      if (time >= this.lyrics[i].timestamp && time <= this.lyrics[i].endtime) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private startAnimationFromTime(time: number) {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = undefined;
+    }
+
+    if (!this.lyrics) return;
+
+    const lineIndex = this.findActiveLineIndex(time);
+    this.activeLineIndex = lineIndex;
+
+    if (lineIndex === -1) {
+      this.activeMainWordIndex = -1;
+      this.activeBackgroundWordIndex = -1;
+      this.mainWordAnimation = { startTime: 0, duration: 0 };
+      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+      return;
+    }
+
+    const line = this.lyrics[lineIndex];
+
+    // Find main word based on the reset time
+    let mainWordIdx = -1;
+    for (let i = 0; i < line.text.length; i += 1) {
+      if (time >= line.text[i].timestamp && time <= line.text[i].endtime) {
+        mainWordIdx = i;
+        break;
+      }
+    }
+    this.activeMainWordIndex = mainWordIdx;
+
+    // Find background word based on the reset time
+    let backWordIdx = -1;
+    if (line.backgroundText) {
+      for (let i = 0; i < line.backgroundText.length; i += 1) {
         if (
-          this.currentTime >= this.lyrics[i].timestamp &&
-          this.currentTime <= this.lyrics[i].endtime
+          time >= line.backgroundText[i].timestamp &&
+          time <= line.backgroundText[i].endtime
         ) {
-          lineIdx = i;
+          backWordIdx = i;
           break;
         }
       }
+    }
+    this.activeBackgroundWordIndex = backWordIdx;
 
-      this.activeLineIndex = lineIdx;
+    // With the state correctly set, configure the animation parameters
+    this.setupAnimations();
 
-      if (lineIdx !== -1) {
-        const line = this.lyrics[lineIdx];
+    // Start the animation loop
+    if (this.interpolate) {
+      this.animateProgress();
+    }
+  }
 
-        // Find active main word
-        let mainWordIdx = -1;
-        for (let i = 0; i < line.text.length; i += 1) {
+  private updateActiveLineAndWords() {
+    if (!this.lyrics) return;
+
+    const lineIdx = this.findActiveLineIndex(this.currentTime);
+    this.activeLineIndex = lineIdx;
+
+    if (lineIdx !== -1) {
+      const line = this.lyrics[lineIdx];
+      let mainWordIdx = -1;
+      for (let i = 0; i < line.text.length; i += 1) {
+        if (
+          this.currentTime >= line.text[i].timestamp &&
+          this.currentTime <= line.text[i].endtime
+        ) {
+          mainWordIdx = i;
+          break;
+        }
+      }
+      this.activeMainWordIndex = mainWordIdx;
+
+      let backWordIdx = -1;
+      if (line.backgroundText) {
+        for (let i = 0; i < line.backgroundText.length; i += 1) {
           if (
-            this.currentTime >= line.text[i].timestamp &&
-            this.currentTime <= line.text[i].endtime
+            this.currentTime >= line.backgroundText[i].timestamp &&
+            this.currentTime <= line.backgroundText[i].endtime
           ) {
-            mainWordIdx = i;
+            backWordIdx = i;
             break;
           }
         }
-        this.activeMainWordIndex = mainWordIdx;
-
-        // Find active background word
-        let backWordIdx = -1;
-        if (line.backgroundText) {
-          for (let i = 0; i < line.backgroundText.length; i += 1) {
-            if (
-              this.currentTime >= line.backgroundText[i].timestamp &&
-              this.currentTime <= line.backgroundText[i].endtime
-            ) {
-              backWordIdx = i;
-              break;
-            }
-          }
-        }
-        this.activeBackgroundWordIndex = backWordIdx;
-
-        // If the active word or line has changed, start a new animation.
-        if (
-          this.activeLineIndex !== oldActiveLineIndex ||
-          this.activeMainWordIndex !== oldActiveMainWordIndex ||
-          this.activeBackgroundWordIndex !== oldActiveBackgroundWordIndex
-        ) {
-          if (this.animationFrameId) {
-            cancelAnimationFrame(this.animationFrameId);
-          }
-
-          // Main word animation
-          if (this.activeMainWordIndex !== -1) {
-            const word = line.text[this.activeMainWordIndex];
-            const wordDuration = word.endtime - word.timestamp;
-            const elapsedInWord = this.currentTime - word.timestamp;
-            this.mainWordAnimation = {
-              startTime: performance.now() - elapsedInWord,
-              duration: wordDuration,
-            };
-          } else {
-            this.mainWordAnimation = { startTime: 0, duration: 0 };
-          }
-
-          // Background word animation
-          if (this.activeBackgroundWordIndex !== -1 && line.backgroundText) {
-            const word = line.backgroundText[this.activeBackgroundWordIndex];
-            const wordDuration = word.endtime - word.timestamp;
-            const elapsedInWord = this.currentTime - word.timestamp;
-            this.backgroundWordAnimation = {
-              startTime: performance.now() - elapsedInWord,
-              duration: wordDuration,
-            };
-          } else {
-            this.backgroundWordAnimation = { startTime: 0, duration: 0 };
-          }
-
-          this.animateProgress();
-        }
-      } else {
-        // No active line, so stop everything.
-        this.activeMainWordIndex = -1;
-        this.activeBackgroundWordIndex = -1;
-        this.mainWordProgress = 0;
-        this.backgroundWordProgress = 0;
-        if (this.animationFrameId) {
-          cancelAnimationFrame(this.animationFrameId);
-        }
       }
+      this.activeBackgroundWordIndex = backWordIdx;
+    } else {
+      this.activeMainWordIndex = -1;
+      this.activeBackgroundWordIndex = -1;
+    }
+  }
 
-      if (this.autoScroll && this.activeLineIndex !== oldActiveLineIndex) {
-        this.scrollToActiveLine();
-      }
+  private setupAnimations() {
+    if (this.activeLineIndex === -1 || !this.lyrics) {
+      this.mainWordAnimation = { startTime: 0, duration: 0 };
+      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+      return;
+    }
+
+    const line = this.lyrics[this.activeLineIndex];
+
+    // Main word animation
+    if (this.activeMainWordIndex !== -1) {
+      const word = line.text[this.activeMainWordIndex];
+      const wordDuration = word.endtime - word.timestamp;
+      const elapsedInWord = this.currentTime - word.timestamp;
+      this.mainWordAnimation = {
+        startTime: performance.now() - elapsedInWord,
+        duration: wordDuration,
+      };
+    } else {
+      this.mainWordAnimation = { startTime: 0, duration: 0 };
+    }
+
+    // Background word animation
+    if (this.activeBackgroundWordIndex !== -1 && line.backgroundText) {
+      const word = line.backgroundText[this.activeBackgroundWordIndex];
+      const wordDuration = word.endtime - word.timestamp;
+      const elapsedInWord = this.currentTime - word.timestamp;
+      this.backgroundWordAnimation = {
+        startTime: performance.now() - elapsedInWord,
+        duration: wordDuration,
+      };
+    } else {
+      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
     }
   }
 
@@ -417,6 +477,15 @@ export class AmLyrics extends LitElement {
     const now = performance.now();
     let running = false;
 
+    const line = this.lyrics?.[this.activeLineIndex];
+    if (!line) {
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = undefined;
+      }
+      return;
+    }
+
     // Main text animation
     if (this.mainWordAnimation.duration > 0) {
       const elapsed = now - this.mainWordAnimation.startTime;
@@ -427,14 +496,17 @@ export class AmLyrics extends LitElement {
         if (progress < 1) {
           running = true;
         } else {
-          // Word animation finished. Look for the next word.
+          // Word animation finished. Look for the next word in the same line.
           this.mainWordAnimation.duration = 0;
-          const line = this.lyrics?.[this.activeLineIndex];
-          if (line && this.activeMainWordIndex < line.text.length - 1) {
+          const nextWordIndex = this.activeMainWordIndex + 1;
+          if (
+            this.activeMainWordIndex !== -1 &&
+            nextWordIndex < line.text.length
+          ) {
             const currentWord = line.text[this.activeMainWordIndex];
-            this.activeMainWordIndex += 1;
-            const nextWord = line.text[this.activeMainWordIndex];
+            const nextWord = line.text[nextWordIndex];
 
+            this.activeMainWordIndex = nextWordIndex;
             const gap = nextWord.timestamp - currentWord.endtime;
             const nextWordDuration = nextWord.endtime - nextWord.timestamp;
 
@@ -465,19 +537,19 @@ export class AmLyrics extends LitElement {
         if (progress < 1) {
           running = true;
         } else {
-          // Word animation finished.
+          // Word animation finished. Look for the next word in the same line.
           this.backgroundWordAnimation.duration = 0;
-          const line = this.lyrics?.[this.activeLineIndex];
           if (
-            line?.backgroundText &&
+            line.backgroundText &&
+            this.activeBackgroundWordIndex !== -1 &&
             this.activeBackgroundWordIndex < line.backgroundText.length - 1
           ) {
+            const nextWordIndex = this.activeBackgroundWordIndex + 1;
             const currentWord =
               line.backgroundText[this.activeBackgroundWordIndex];
-            this.activeBackgroundWordIndex += 1;
-            const nextWord =
-              line.backgroundText[this.activeBackgroundWordIndex];
+            const nextWord = line.backgroundText[nextWordIndex];
 
+            this.activeBackgroundWordIndex = nextWordIndex;
             const gap = nextWord.timestamp - currentWord.endtime;
             const nextWordDuration = nextWord.endtime - nextWord.timestamp;
 
@@ -499,6 +571,10 @@ export class AmLyrics extends LitElement {
       this.animationFrameId = requestAnimationFrame(
         this.animateProgress.bind(this),
       );
+    } else if (this.animationFrameId) {
+      // Stop animation if no words are running
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = undefined;
     }
   }
 
@@ -545,7 +621,7 @@ export class AmLyrics extends LitElement {
                       this.currentTime > syllable.endtime));
                 let progress = 0;
                 if (isWordActive) {
-                  progress = this.mainWordProgress;
+                  progress = this.interpolate ? this.mainWordProgress : 1;
                 } else if (isWordPassed) {
                   progress = 1;
                 }
@@ -576,7 +652,9 @@ export class AmLyrics extends LitElement {
                           this.currentTime > syllable.endtime));
                     let progress = 0;
                     if (isWordActive) {
-                      progress = this.backgroundWordProgress;
+                      progress = this.interpolate
+                        ? this.backgroundWordProgress
+                        : 1;
                     } else if (isWordPassed) {
                       progress = 1;
                     }
@@ -608,6 +686,7 @@ export class AmLyrics extends LitElement {
               class="lyrics-footer ${this.hideSourceFooter ? 'compact' : ''}"
             >
               ${!this.hideSourceFooter ? html`<p>Source: Apple Music</p>` : ''}
+              v${VERSION} •
               <a
                 href="https://github.com/uimaxbai/apple-music-web-components"
                 target="_blank"

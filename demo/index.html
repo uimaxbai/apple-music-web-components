@@ -68,7 +68,7 @@
       if (!amLyrics) return;
 
       const elapsedTime = Date.now() - systemStartTime;
-      amLyrics.currentTime = Math.round((songStartTime + elapsedTime) / 1000) * 1000; // Convert to milliseconds
+      amLyrics.currentTime = Math.round(songStartTime + elapsedTime / 1000) * 1000; // Convert to milliseconds
 
       animationFrameId = requestAnimationFrame(animate);
     }
