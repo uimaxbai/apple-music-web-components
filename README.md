@@ -28,6 +28,7 @@ Or, just use the CDN.
   hide-source-footer="false"
   font-family="'Inter', Arial, sans-serif"
   autoscroll
+  interpolate
 ></am-lyrics>
 <!--
 <am-lyrics
@@ -40,6 +41,7 @@ Or, just use the CDN.
   hide-source-footer="false"        // Controls whether the footer at the bottom is a larger one or a more compact GitHub link.
   font-family="'Inter', sans-serif" // BYOF
   autoscroll                        // Self-explanatory
+  interpolate                       // Whether to animate the progress of the words
   @line-click=${handleLineClick}    // Event listener for line clicks to skip to that part of the song.
 ></am-lyrics>
 -->
