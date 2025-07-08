@@ -55,4 +55,6 @@ const AmLyrics = dynamic(
 
 5. Profit (follow the README's React guide from here)
 
+You will get an issue that says 'HTMLElement can't be found', but that can be safely ignored.
+
 See the working example [here](https://github.com/uimaxbai/am-lyrics-next-example).
