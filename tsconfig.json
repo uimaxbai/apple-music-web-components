@@ -1,22 +1,23 @@
 {
   "compilerOptions": {
     "target": "es2021",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "noEmitOnError": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "lib": ["es2021", "dom", "DOM.Iterable"],
     "strict": true,
     "esModuleInterop": false,
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
-    "importHelpers": true,
+    "importHelpers": false,
     "outDir": "dist",
     "sourceMap": true,
     "inlineSources": true,
     "rootDir": "./",
     "declaration": true,
-    "incremental": true,
-    "skipLibCheck": true
+    "declarationMap": true,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "incremental": true
   },
   "include": ["**/*.ts"]
 }

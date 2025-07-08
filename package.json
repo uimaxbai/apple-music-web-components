@@ -3,10 +3,11 @@
   "description": "Web Component for Apple Music lyrics. Follows open-wc recommendations.",
   "license": "MPL-2.0",
   "author": "uimaxbai",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "main": "dist/src/index.js",
   "module": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "exports": {
     ".": "./dist/src/index.js",
     "./am-lyrics.js": "./dist/src/am-lyrics.js"
@@ -47,8 +48,8 @@
     "lint-staged": "^15.2.7",
     "prettier": "^3.3.2",
     "storybook": "^7.6.20",
-    "tslib": "^2.6.3",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "tslib": "^2.8.1"
   },
   "customElements": "custom-elements.json",
   "eslintConfig": {
