@@ -5,7 +5,7 @@ This webcomponent follows the [open-wc](https://github.com/open-wc/open-wc) reco
 ## Installation
 
 ```bash
-npm install am-lyrics # For react users and those crazy enough to not use the CDN
+npm install @uimaxbai/am-lyrics # For react users and those crazy enough to not use the CDN
 ```
 
 
@@ -48,54 +48,92 @@ Or, just use the CDN.
 First, ensure you have `react` and `@lit/react` installed in your project.
 
 ```bash
-npm install react @lit/react
+npm install react @lit/react # Very important or errors will arise
 ```
 
 Then, you can import the `AmLyrics` component from `am-lyrics/react` and use it in your components.
 
 ```jsx
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { AmLyrics } from 'am-lyrics/react';
+'use client'; // VERY IMPORTANT!!!
 
-function App() {
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { AmLyrics } from '@uimaxbai/am-lyrics/react';
+
+export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
-  const audioRef = useRef(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Sync audio player time with the component
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
+    let animationFrameId: number;
+
+    const updateCurrentTime = () => {
+      setCurrentTime(audio.currentTime * 1000);
+      animationFrameId = requestAnimationFrame(updateCurrentTime); // Use requestAnimationFrame to prevent choppy scrolling
+    };
+
+    const handlePlay = () => {
+      animationFrameId = requestAnimationFrame(updateCurrentTime);
+    };
+
+    const handlePause = () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime * 1000); // Convert to milliseconds
     };
 
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
     audio.addEventListener('timeupdate', handleTimeUpdate);
-    return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+    };
   }, []);
 
   // Handle line clicks to seek the audio
-  const handleLineClick = useCallback(event => {
+  const handleLineClick = useCallback((event: Event) => {
+    const customEvent = event as CustomEvent<{ timestamp: number }>;
     const audio = audioRef.current;
     if (audio) {
-      audio.currentTime = event.detail.timestamp / 1000; // Convert to seconds
+      audio.currentTime = customEvent.detail.timestamp / 1000; // Convert to seconds
       audio.play();
     }
   }, []);
 
   return (
     <div>
-      <audio ref={audioRef} src="path/to/your/song.mp3" controls />
-      <AmLyrics
-        query="Uptown Funk"
-        currentTime={currentTime}
-        onLineClick={handleLineClick}
-        autoscroll
-      />
+      <audio ref={audioRef} src="/uptown_funk.flac" controls />
+        <AmLyrics
+          query="Uptown Funk"
+          currentTime={currentTime}
+          onLineClick={handleLineClick}
+          autoScroll
+          highlightColor='#fff'
+        />
     </div>
   );
 }
 ```
+
+For NextJS users, see below otherwise it won't work.
+
+### SSR
+
+Lit web components only partially support SSR, so this package is very volatile in SSR. Either:
+
+- Use the CDN solution and place it direct into your HTML or
+- Disable SSR on the page with lyrics.
+
+Using NextJS? See [`next.md`](./next.md).
 
 The timer needs to be defined by yourself. For example:
 
@@ -199,7 +237,7 @@ You can synchronize the lyrics with an HTML `<audio>` element.
 </script>
 ```
 
-See `demo/index.html` for a functional demo.
+See [`demo/index.html`](./demo/index.html) for a functional demo.
 
 ## Development
 
