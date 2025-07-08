@@ -1,9 +1,9 @@
 {
   "name": "am-lyrics",
-  "description": "Webcomponent am-lyrics following open-wc recommendations",
-  "license": "MIT",
-  "author": "am-lyrics",
-  "version": "0.0.0",
+  "description": "Web Component for Apple Music lyrics. Follows open-wc recommendations.",
+  "license": "MPL-2.0",
+  "author": "uimaxbai",
+  "version": "0.0.1",
   "type": "module",
   "main": "dist/src/index.js",
   "module": "dist/src/index.js",
