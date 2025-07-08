@@ -24,6 +24,7 @@ Or, just use the CDN.
   isrc=""
   duration=""
   highlight-color="#f00"
+  hover-background-color="#e0e0e0"
   hide-source-footer="false"
   font-family="'Inter', Arial, sans-serif"
   autoscroll
@@ -35,6 +36,7 @@ Or, just use the CDN.
   isrc=""                           // To be used WITH a query, just to double check if it is correct
   duration=""                       // Duration of your timer (the component takes it in and syncs to the words. See JS below)
   highlight-color="#000"            // Color of the highlighted words
+  hover-background-color="#f0f0f0"  // Color of the line when you hover over it
   hide-source-footer="false"        // Controls whether the footer at the bottom is a larger one or a more compact GitHub link.
   font-family="'Inter', sans-serif" // BYOF
   autoscroll                        // Self-explanatory

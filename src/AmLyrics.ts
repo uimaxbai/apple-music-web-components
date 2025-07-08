@@ -55,7 +55,7 @@ export class AmLyrics extends LitElement {
     }
 
     .lyrics-line:hover {
-      background-color: #f0f0f0;
+      background-color: var(--hover-background-color, #f0f0f0);
     }
 
     .opposite-turn {
@@ -81,9 +81,10 @@ export class AmLyrics extends LitElement {
       color: var(--highlight-color, #000); /* Highlight color to black */
       overflow: hidden;
       /* Spring animation */
-      transition: width 0.05s cubic-bezier(0.25, 0.1, 0.25, 1.5);
+      /* transition: width 0.05s ; */
       white-space: nowrap;
-      transition: var(--transition-style, all) 0.05s;
+      transition: var(--transition-style, all) 0.05s
+        cubic-bezier(0.25, 0.1, 0.25, 1.5);
     }
 
     .active-word {
@@ -147,6 +148,9 @@ export class AmLyrics extends LitElement {
   @property({ type: String, attribute: 'highlight-color' })
   highlightColor = '#000';
 
+  @property({ type: String, attribute: 'hover-background-color' })
+  hoverBackgroundColor = '#f0f0f0';
+
   @property({ type: Boolean, attribute: 'hide-source-footer' })
   hideSourceFooter = false;
 
@@ -183,12 +187,25 @@ export class AmLyrics extends LitElement {
   @state()
   private backgroundWordProgress = 0;
 
+  private animationFrameId?: number;
+
+  private mainWordAnimation = { startTime: 0, duration: 0 };
+
+  private backgroundWordAnimation = { startTime: 0, duration: 0 };
+
   @query('.lyrics-container')
   private lyricsContainer?: HTMLElement;
 
   connectedCallback() {
     super.connectedCallback();
     this.fetchLyrics();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
   }
 
   private async fetchLyrics() {
@@ -263,6 +280,9 @@ export class AmLyrics extends LitElement {
 
     if (changedProperties.has('currentTime') && this.lyrics) {
       const oldActiveLineIndex = this.activeLineIndex;
+      const oldActiveMainWordIndex = this.activeMainWordIndex;
+      const oldActiveBackgroundWordIndex = this.activeBackgroundWordIndex;
+
       let lineIdx = -1;
 
       for (let i = 0; i < this.lyrics.length; i += 1) {
@@ -293,19 +313,6 @@ export class AmLyrics extends LitElement {
         }
         this.activeMainWordIndex = mainWordIdx;
 
-        if (mainWordIdx !== -1) {
-          const word = line.text[mainWordIdx];
-          const wordDuration = word.endtime - word.timestamp;
-          if (wordDuration > 0) {
-            this.mainWordProgress = Math.max(
-              0,
-              Math.min(1, (this.currentTime - word.timestamp) / wordDuration),
-            );
-          }
-        } else {
-          this.mainWordProgress = 0;
-        }
-
         // Find active background word
         let backWordIdx = -1;
         if (line.backgroundText) {
@@ -321,23 +328,53 @@ export class AmLyrics extends LitElement {
         }
         this.activeBackgroundWordIndex = backWordIdx;
 
-        if (backWordIdx !== -1) {
-          const word = line.backgroundText[backWordIdx];
-          const wordDuration = word.endtime - word.timestamp;
-          if (wordDuration > 0) {
-            this.backgroundWordProgress = Math.max(
-              0,
-              Math.min(1, (this.currentTime - word.timestamp) / wordDuration),
-            );
+        // If the active word or line has changed, start a new animation.
+        if (
+          this.activeLineIndex !== oldActiveLineIndex ||
+          this.activeMainWordIndex !== oldActiveMainWordIndex ||
+          this.activeBackgroundWordIndex !== oldActiveBackgroundWordIndex
+        ) {
+          if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
           }
-        } else {
-          this.backgroundWordProgress = 0;
+
+          // Main word animation
+          if (this.activeMainWordIndex !== -1) {
+            const word = line.text[this.activeMainWordIndex];
+            const wordDuration = word.endtime - word.timestamp;
+            const elapsedInWord = this.currentTime - word.timestamp;
+            this.mainWordAnimation = {
+              startTime: performance.now() - elapsedInWord,
+              duration: wordDuration,
+            };
+          } else {
+            this.mainWordAnimation = { startTime: 0, duration: 0 };
+          }
+
+          // Background word animation
+          if (this.activeBackgroundWordIndex !== -1 && line.backgroundText) {
+            const word = line.backgroundText[this.activeBackgroundWordIndex];
+            const wordDuration = word.endtime - word.timestamp;
+            const elapsedInWord = this.currentTime - word.timestamp;
+            this.backgroundWordAnimation = {
+              startTime: performance.now() - elapsedInWord,
+              duration: wordDuration,
+            };
+          } else {
+            this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+          }
+
+          this.animateProgress();
         }
       } else {
+        // No active line, so stop everything.
         this.activeMainWordIndex = -1;
         this.activeBackgroundWordIndex = -1;
         this.mainWordProgress = 0;
         this.backgroundWordProgress = 0;
+        if (this.animationFrameId) {
+          cancelAnimationFrame(this.animationFrameId);
+        }
       }
 
       if (this.autoScroll && this.activeLineIndex !== oldActiveLineIndex) {
@@ -376,10 +413,103 @@ export class AmLyrics extends LitElement {
     }
   }
 
+  private animateProgress() {
+    const now = performance.now();
+    let running = false;
+
+    // Main text animation
+    if (this.mainWordAnimation.duration > 0) {
+      const elapsed = now - this.mainWordAnimation.startTime;
+      if (elapsed >= 0) {
+        const progress = Math.min(1, elapsed / this.mainWordAnimation.duration);
+        this.mainWordProgress = progress;
+
+        if (progress < 1) {
+          running = true;
+        } else {
+          // Word animation finished. Look for the next word.
+          this.mainWordAnimation.duration = 0;
+          const line = this.lyrics?.[this.activeLineIndex];
+          if (line && this.activeMainWordIndex < line.text.length - 1) {
+            const currentWord = line.text[this.activeMainWordIndex];
+            this.activeMainWordIndex += 1;
+            const nextWord = line.text[this.activeMainWordIndex];
+
+            const gap = nextWord.timestamp - currentWord.endtime;
+            const nextWordDuration = nextWord.endtime - nextWord.timestamp;
+
+            this.mainWordAnimation = {
+              startTime: performance.now() + gap,
+              duration: nextWordDuration,
+            };
+            running = true;
+          }
+        }
+      } else {
+        // Waiting in a gap
+        this.mainWordProgress = 0;
+        running = true;
+      }
+    }
+
+    // Background text animation
+    if (this.backgroundWordAnimation.duration > 0) {
+      const elapsed = now - this.backgroundWordAnimation.startTime;
+      if (elapsed >= 0) {
+        const progress = Math.min(
+          1,
+          elapsed / this.backgroundWordAnimation.duration,
+        );
+        this.backgroundWordProgress = progress;
+
+        if (progress < 1) {
+          running = true;
+        } else {
+          // Word animation finished.
+          this.backgroundWordAnimation.duration = 0;
+          const line = this.lyrics?.[this.activeLineIndex];
+          if (
+            line?.backgroundText &&
+            this.activeBackgroundWordIndex < line.backgroundText.length - 1
+          ) {
+            const currentWord =
+              line.backgroundText[this.activeBackgroundWordIndex];
+            this.activeBackgroundWordIndex += 1;
+            const nextWord =
+              line.backgroundText[this.activeBackgroundWordIndex];
+
+            const gap = nextWord.timestamp - currentWord.endtime;
+            const nextWordDuration = nextWord.endtime - nextWord.timestamp;
+
+            this.backgroundWordAnimation = {
+              startTime: performance.now() + gap,
+              duration: nextWordDuration,
+            };
+            running = true;
+          }
+        }
+      } else {
+        // Waiting in a gap
+        this.backgroundWordProgress = 0;
+        running = true;
+      }
+    }
+
+    if (running) {
+      this.animationFrameId = requestAnimationFrame(
+        this.animateProgress.bind(this),
+      );
+    }
+  }
+
   render() {
     if (this.fontFamily) {
       this.style.fontFamily = this.fontFamily;
     }
+    this.style.setProperty(
+      '--hover-background-color',
+      this.hoverBackgroundColor,
+    );
 
     const renderContent = () => {
       if (this.isLoading) {
