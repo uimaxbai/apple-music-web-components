@@ -1,5 +1,7 @@
 # Usage with NextJS
 
+See the working example [here](https://github.com/uimaxbai/am-lyrics-next-example).
+
 0. Follow instructions in [README.md](./README.md) for using this as a React component.
 1. Install [`@lit-labs/nextjs`](https://www.npmjs.com/package/@lit-labs/nextjs):
 
@@ -53,3 +55,4 @@ const AmLyrics = dynamic(
 
 5. Profit (follow the README's React guide from here)
 
+See the working example [here](https://github.com/uimaxbai/am-lyrics-next-example).

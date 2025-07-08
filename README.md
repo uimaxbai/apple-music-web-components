@@ -124,7 +124,7 @@ export default function App() {
 }
 ```
 
-For NextJS users, see below otherwise it won't work.
+Using NextJS? See [`next.md`](./next.md).
 
 ### SSR
 
