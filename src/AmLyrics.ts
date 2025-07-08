@@ -163,6 +163,9 @@ export class AmLyrics extends LitElement {
   currentTime = 0;
 
   @state()
+  private isLoading = false;
+
+  @state()
   private lyrics?: LyricsLine[];
 
   @state()
@@ -189,52 +192,58 @@ export class AmLyrics extends LitElement {
   }
 
   private async fetchLyrics() {
-    const baseURL = 'https://paxsenix.alwaysdata.net/';
-    let appleID = this.musicId;
+    this.isLoading = true;
+    this.lyrics = undefined;
+    try {
+      const baseURL = 'https://paxsenix.alwaysdata.net/';
+      let appleID = this.musicId;
 
-    if (!appleID && this.query) {
-      const search = encodeURIComponent(this.query);
-      try {
-        const searchResponse = await fetch(
-          `${baseURL}searchAppleMusic.php?q=${search}`,
-        );
-        if (!searchResponse.ok) {
-          console.error('Search failed', searchResponse);
-          return;
-        }
-        const decoded = await searchResponse.json();
-
-        if (this.isrc) {
-          const song = decoded.find((s: any) => s.isrc === this.isrc);
-          if (song) {
-            appleID = song.id;
+      if (!appleID && this.query) {
+        const search = encodeURIComponent(this.query);
+        try {
+          const searchResponse = await fetch(
+            `${baseURL}searchAppleMusic.php?q=${search}`,
+          );
+          if (!searchResponse.ok) {
+            console.error('Search failed', searchResponse);
+            return;
           }
-        } else if (decoded.length > 0) {
-          appleID = decoded[0].id;
-        }
-      } catch (e) {
-        console.error('Error during search', e);
-        return;
-      }
-    }
+          const decoded = await searchResponse.json();
 
-    if (appleID) {
-      try {
-        const lyricsResponse = await fetch(
-          `${baseURL}getAppleMusicLyrics.php?id=${appleID}`,
-        );
-        if (!lyricsResponse.ok) {
-          console.error('Failed to get lyrics', lyricsResponse);
+          if (this.isrc) {
+            const song = decoded.find((s: any) => s.isrc === this.isrc);
+            if (song) {
+              appleID = song.id;
+            }
+          } else if (decoded.length > 0) {
+            appleID = decoded[0].id;
+          }
+        } catch (e) {
+          console.error('Error during search', e);
           return;
         }
-        const lyricsData: LyricsResponse = await lyricsResponse.json();
-        this.lyrics = lyricsData.content;
-        if (this.lyricsContainer) {
-          this.lyricsContainer.scrollTop = 0;
-        }
-      } catch (e) {
-        console.error('Error fetching lyrics', e);
       }
+
+      if (appleID) {
+        try {
+          const lyricsResponse = await fetch(
+            `${baseURL}getAppleMusicLyrics.php?id=${appleID}`,
+          );
+          if (!lyricsResponse.ok) {
+            console.error('Failed to get lyrics', lyricsResponse);
+            return;
+          }
+          const lyricsData: LyricsResponse = await lyricsResponse.json();
+          this.lyrics = lyricsData.content;
+          if (this.lyricsContainer) {
+            this.lyricsContainer.scrollTop = 0;
+          }
+        } catch (e) {
+          console.error('Error fetching lyrics', e);
+        }
+      }
+    } finally {
+      this.isLoading = false;
     }
   }
 
@@ -372,98 +381,112 @@ export class AmLyrics extends LitElement {
       this.style.fontFamily = this.fontFamily;
     }
 
+    const renderContent = () => {
+      if (this.isLoading) {
+        return html`<div class="loading-indicator">Loading...</div>`;
+      }
+      if (!this.lyrics || this.lyrics.length === 0) {
+        return html`<div class="no-lyrics">No lyrics found.</div>`;
+      }
+      return this.lyrics.map((line, lineIndex) => {
+        const isLineActive = lineIndex === this.activeLineIndex;
+
+        return html`
+          <div
+            class="lyrics-line ${line.oppositeTurn
+              ? 'opposite-turn'
+              : ''} ${isLineActive ? 'active-line' : ''}"
+            @click=${() => this.handleLineClick(line)}
+            tabindex="0"
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                this.handleLineClick(line);
+              }
+            }}
+          >
+            <span>
+              ${line.text.map((syllable, wordIndex) => {
+                const isWordActive =
+                  isLineActive && wordIndex === this.activeMainWordIndex;
+                const isWordPassed =
+                  isLineActive &&
+                  (wordIndex < this.activeMainWordIndex ||
+                    (this.activeMainWordIndex === -1 &&
+                      this.currentTime > syllable.endtime));
+                let progress = 0;
+                if (isWordActive) {
+                  progress = this.mainWordProgress;
+                } else if (isWordPassed) {
+                  progress = 1;
+                }
+
+                return html`<span
+                  class="progress-text"
+                  style="--line-progress: ${progress *
+                  100}%; margin-right: ${syllable.part
+                    ? '0'
+                    : '.5ch'}; --transition-style: ${isLineActive
+                    ? 'all'
+                    : 'color'}; --highlight-color: ${this.highlightColor}"
+                  data-text="${syllable.text}${syllable.part ? ' ' : ''}"
+                  >${syllable.text}</span
+                >`;
+              })}
+            </span>
+            ${line.backgroundText && line.backgroundText.length > 0
+              ? html`<span class="background-text">
+                  ${line.backgroundText.map((syllable, wordIndex) => {
+                    const isWordActive =
+                      isLineActive &&
+                      wordIndex === this.activeBackgroundWordIndex;
+                    const isWordPassed =
+                      isLineActive &&
+                      (wordIndex < this.activeBackgroundWordIndex ||
+                        (this.activeBackgroundWordIndex === -1 &&
+                          this.currentTime > syllable.endtime));
+                    let progress = 0;
+                    if (isWordActive) {
+                      progress = this.backgroundWordProgress;
+                    } else if (isWordPassed) {
+                      progress = 1;
+                    }
+
+                    return html`<span
+                      class="progress-text"
+                      style="--line-progress: ${progress *
+                      100}%; ; margin-right: ${syllable.part
+                        ? '0'
+                        : '.5ch'}; --transition-style: ${isLineActive
+                        ? 'all'
+                        : 'color'}; --highlight-color: ${this.highlightColor}"
+                      data-text="${syllable.text}"
+                      >${syllable.text}</span
+                    >`;
+                  })}
+                </span>`
+              : ''}
+          </div>
+        `;
+      });
+    };
+
     return html`
       <div class="lyrics-container">
-        ${this.lyrics?.map((line, lineIndex) => {
-          const isLineActive = lineIndex === this.activeLineIndex;
-
-          return html`
-            <div
-              class="lyrics-line ${line.oppositeTurn
-                ? 'opposite-turn'
-                : ''} ${isLineActive ? 'active-line' : ''}"
-              @click=${() => this.handleLineClick(line)}
-              tabindex="0"
-              @keydown=${(e: KeyboardEvent) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  this.handleLineClick(line);
-                }
-              }}
+        ${renderContent()}
+        ${!this.isLoading
+          ? html` <footer
+              class="lyrics-footer ${this.hideSourceFooter ? 'compact' : ''}"
             >
-              <span>
-                ${line.text.map((syllable, wordIndex) => {
-                  const isWordActive =
-                    isLineActive && wordIndex === this.activeMainWordIndex;
-                  const isWordPassed =
-                    isLineActive &&
-                    (wordIndex < this.activeMainWordIndex ||
-                      (this.activeMainWordIndex === -1 &&
-                        this.currentTime > syllable.endtime));
-                  let progress = 0;
-                  if (isWordActive) {
-                    progress = this.mainWordProgress;
-                  } else if (isWordPassed) {
-                    progress = 1;
-                  }
-
-                  return html`<span
-                    class="progress-text"
-                    style="--line-progress: ${progress *
-                    100}%; margin-right: ${syllable.part
-                      ? '0'
-                      : '.5ch'}; --transition-style: ${isLineActive
-                      ? 'all'
-                      : 'color'}; --highlight-color: ${this.highlightColor}"
-                    data-text="${syllable.text}${syllable.part ? ' ' : ''}"
-                    >${syllable.text}</span
-                  >`;
-                })}
-              </span>
-              ${line.backgroundText && line.backgroundText.length > 0
-                ? html`<span class="background-text">
-                    ${line.backgroundText.map((syllable, wordIndex) => {
-                      const isWordActive =
-                        isLineActive &&
-                        wordIndex === this.activeBackgroundWordIndex;
-                      const isWordPassed =
-                        isLineActive &&
-                        (wordIndex < this.activeBackgroundWordIndex ||
-                          (this.activeBackgroundWordIndex === -1 &&
-                            this.currentTime > syllable.endtime));
-                      let progress = 0;
-                      if (isWordActive) {
-                        progress = this.backgroundWordProgress;
-                      } else if (isWordPassed) {
-                        progress = 1;
-                      }
-
-                      return html`<span
-                        class="progress-text"
-                        style="--line-progress: ${progress *
-                        100}%; ; margin-right: ${syllable.part
-                          ? '0'
-                          : '.5ch'}; --transition-style: ${isLineActive
-                          ? 'all'
-                          : 'color'}; --highlight-color: ${this.highlightColor}"
-                        data-text="${syllable.text}"
-                        >${syllable.text}</span
-                      >`;
-                    })}
-                  </span>`
-                : ''}
-            </div>
-          `;
-        })}
+              ${!this.hideSourceFooter ? html`<p>Source: Apple Music</p>` : ''}
+              <a
+                href="https://github.com/uimaxbai/apple-music-web-components"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Star me on GitHub
+              </a>
+            </footer>`
+          : ''}
       </div>
-      <footer class="lyrics-footer ${this.hideSourceFooter ? '' : 'compact'}">
-        ${!this.hideSourceFooter ? '' : html`<p>Source: Apple Music</p>`}
-        <a
-          href="https://github.com/uimaxbai/apple-music-web-components"
-          target="_blank"
-          rel="noopener noreferrer"
-          >Star me on GitHub
-        </a>
-      </footer>
     `;
   }
 }

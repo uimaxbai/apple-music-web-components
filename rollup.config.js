@@ -23,7 +23,7 @@ export default [
     external: [/@babel\/runtime/],
     output: [
       {
-        file: 'dist/am-lyrics.js',
+        file: 'dist/src/am-lyrics.js',
         format: 'esm',
         sourcemap: true,
       }
@@ -36,7 +36,7 @@ export default [
     external: [/@babel\/runtime/, 'react', '@lit/react'],
     output: [
       {
-        file: 'dist/react.js',
+        file: 'dist/src/react.js',
         format: 'esm',
         sourcemap: true,
       }

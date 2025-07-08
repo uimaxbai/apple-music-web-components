@@ -3,7 +3,7 @@
   "description": "Web Component for Apple Music lyrics. Follows open-wc recommendations.",
   "license": "MPL-2.0",
   "author": "uimaxbai",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "type": "module",
   "main": "dist/src/index.js",
   "module": "dist/src/index.js",
@@ -11,7 +11,7 @@
   "exports": {
     ".": "./dist/src/index.js",
     "./am-lyrics.js": "./dist/src/am-lyrics.js",
-    "./react": "./dist/react.js"
+    "./react": "./dist/src/react.js"
   },
   "scripts": {
     "analyze": "cem analyze --litelement",
