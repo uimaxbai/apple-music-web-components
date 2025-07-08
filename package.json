@@ -1,16 +1,17 @@
 {
-  "name": "am-lyrics",
+  "name": "@uimaxbai/am-lyrics",
   "description": "Web Component for Apple Music lyrics. Follows open-wc recommendations.",
   "license": "MPL-2.0",
   "author": "uimaxbai",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "type": "module",
   "main": "dist/src/index.js",
   "module": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
     ".": "./dist/src/index.js",
-    "./am-lyrics.js": "./dist/src/am-lyrics.js"
+    "./am-lyrics.js": "./dist/src/am-lyrics.js",
+    "./react": "./dist/react.js"
   },
   "scripts": {
     "analyze": "cem analyze --litelement",
@@ -32,6 +33,7 @@
     "@babel/preset-env": "^7.28.0",
     "@babel/preset-typescript": "^7.27.1",
     "@custom-elements-manifest/analyzer": "^0.10.3",
+    "@lit/react": "^1.0.7",
     "@open-wc/building-rollup": "^3.0.2",
     "@open-wc/eslint-config": "^12.0.3",
     "@open-wc/testing": "^4.0.0",
@@ -55,10 +57,23 @@
     "husky": "^9.0.11",
     "lint-staged": "^15.2.7",
     "prettier": "^3.3.2",
+    "react": "^19.1.0",
     "rimraf": "^6.0.1",
     "rollup": "^4.44.2",
     "tslib": "^2.8.1",
     "typescript": "^5.5.3"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "@lit/react": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "@lit/react": {
+      "optional": true
+    }
   },
   "customElements": "custom-elements.json",
   "eslintConfig": {
@@ -72,9 +87,7 @@
     ],
     "rules": {
       "no-unused-vars": "off",
-      "@typescript-eslint/no-unused-vars": [
-        "error"
-      ],
+      "@typescript-eslint/no-unused-vars": 1,
       "import/no-unresolved": "off",
       "import/extensions": [
         "error",
@@ -82,8 +95,27 @@
         {
           "ignorePackages": true
         }
+      ],
+      "import/no-extraneous-dependencies": [
+        "error",
+        {
+          "devDependencies": true,
+          "optionalDependencies": false,
+          "peerDependencies": false,
+          "packageDir": "./"
+        }
       ]
-    }
+    },
+    "overrides": [
+      {
+        "files": [
+          "*.js"
+        ],
+        "rules": {
+          "import/no-extraneous-dependencies": "off"
+        }
+      }
+    ]
   },
   "prettier": {
     "singleQuote": true,
@@ -94,5 +126,11 @@
       "eslint --fix",
       "prettier --write"
     ]
-  }
+  },
+  "keywords": [
+    "lit",
+    "react",
+    "web-component",
+    "lyrics"
+  ]
 }

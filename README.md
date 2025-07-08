@@ -4,10 +4,11 @@ This webcomponent follows the [open-wc](https://github.com/open-wc/open-wc) reco
 
 ## Installation
 
-
 ```bash
 npm install am-lyrics
 ```
+
+Or, just use the CDN.
 
 ## Usage
 
@@ -42,6 +43,8 @@ npm install am-lyrics
 ```
 
 The timer needs to be defined by yourself. For example:
+
+### Just play the lyrics!
 
 ```html
 <script>
@@ -110,6 +113,37 @@ The timer needs to be defined by yourself. For example:
 </script>
 ```
 
+### With an `<audio>` element
+
+You can synchronize the lyrics with an HTML `<audio>` element.
+
+```html
+<audio id="audio-player" src="path/to/your/song.mp3" controls></audio>
+<am-lyrics query="Uptown Funk"></am-lyrics>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const amLyrics = document.querySelector('am-lyrics');
+    const audioPlayer = document.querySelector('#audio-player');
+
+    if (amLyrics && audioPlayer) {
+      // Update lyrics time when audio time updates
+      audioPlayer.addEventListener('timeupdate', () => {
+        // The component expects time in milliseconds
+        amLyrics.currentTime = audioPlayer.currentTime * 1000;
+      });
+
+      // Seek audio when a lyric line is clicked
+      amLyrics.addEventListener('line-click', (e) => {
+        // The event detail contains the timestamp in milliseconds
+        audioPlayer.currentTime = e.detail.timestamp / 1000;
+        audioPlayer.play();
+      });
+    }
+  });
+</script>
+```
+
 See `demo/index.html` for a functional demo.
 
 ## Development
@@ -142,4 +176,3 @@ To automatically fix linting and formatting errors, run
 ```bash
 npm run format
 ```
-

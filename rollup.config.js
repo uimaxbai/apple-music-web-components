@@ -4,25 +4,43 @@ import babel from '@rollup/plugin-babel'
 
 const PACKAGE_ROOT_PATH = process.cwd()
 
-export default {
-  input: `${PACKAGE_ROOT_PATH}/src/am-lyrics.ts`,
-  external: [/@babel\/runtime/],
-  output: [
-    {
-      file: 'dist/src/am-lyrics.js',
-      format: 'esm',
-      sourcemap: true,
-    }
-  ],
-  plugins: [
-    resolve(),
-    typescript({
-      tsconfig: `./tsconfig.json`
-    }),
-    babel({
-      exclude: 'node_modules/**',
-      rootMode: 'upward',
-      babelHelpers: 'runtime'
-    })
-  ]
-}
+const commonPlugins = [
+  resolve(),
+  typescript({
+    tsconfig: `./tsconfig.json`
+  }),
+  babel({
+    exclude: 'node_modules/**',
+    rootMode: 'upward',
+    babelHelpers: 'runtime'
+  })
+];
+
+export default [
+  // Build for vanilla JS
+  {
+    input: `${PACKAGE_ROOT_PATH}/src/am-lyrics.ts`,
+    external: [/@babel\/runtime/],
+    output: [
+      {
+        file: 'dist/am-lyrics.js',
+        format: 'esm',
+        sourcemap: true,
+      }
+    ],
+    plugins: commonPlugins
+  },
+  // Build for React
+  {
+    input: `${PACKAGE_ROOT_PATH}/src/react.ts`,
+    external: [/@babel\/runtime/, 'react', '@lit/react'],
+    output: [
+      {
+        file: 'dist/react.js',
+        format: 'esm',
+        sourcemap: true,
+      }
+    ],
+    plugins: commonPlugins
+  }
+]
