@@ -1,7 +1,8 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.4.1';
+const VERSION = '0.4.2';
+const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 interface Syllable {
   text: string;
@@ -100,10 +101,11 @@ export class AmLyrics extends LitElement {
     }
 
     .background-text {
-      color: rgba(136, 136, 136, 0.7);
-      font-size: 0.8em;
-      font-style: italic;
-      margin-left: 10px;
+      display: block;
+      color: rgba(136, 136, 136, 0.8);
+      font-size: 0.8em; /* a bit smaller than main line */
+      font-style: normal; /* no italics */
+      margin: 4px 0 0 0; /* place just below the main line */
     }
     .progress-text:last-child {
       margin-right: 0 !important; /* Remove margin for the last word */
@@ -135,6 +137,31 @@ export class AmLyrics extends LitElement {
       border-top: none;
       margin-top: 0;
       padding-top: 0;
+    }
+
+    /* Instrumental indicator */
+    .instrumental-line {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      color: #aaa;
+      font-size: 0.9em;
+      padding: 4px 10px;
+      animation: instrumentalIn 220ms ease;
+    }
+    @keyframes instrumentalIn {
+      from {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .instrumental-duration {
+      color: #aaa;
+      font-size: 0.8em;
     }
   `;
 
@@ -178,28 +205,36 @@ export class AmLyrics extends LitElement {
   private lyrics?: LyricsLine[];
 
   @state()
-  private activeLineIndex = -1;
+  private activeLineIndices: number[] = [];
 
   @state()
-  private activeMainWordIndex = -1;
+  private activeMainWordIndices: Map<number, number> = new Map();
 
   @state()
-  private activeBackgroundWordIndex = -1;
+  private activeBackgroundWordIndices: Map<number, number> = new Map();
 
   @state()
-  private mainWordProgress = 0;
+  private mainWordProgress: Map<number, number> = new Map();
 
   @state()
-  private backgroundWordProgress = 0;
+  private backgroundWordProgress: Map<number, number> = new Map();
 
   private animationFrameId?: number;
 
-  private mainWordAnimation = { startTime: 0, duration: 0 };
+  private mainWordAnimations: Map<
+    number,
+    { startTime: number; duration: number }
+  > = new Map();
 
-  private backgroundWordAnimation = { startTime: 0, duration: 0 };
+  private backgroundWordAnimations: Map<
+    number,
+    { startTime: number; duration: number }
+  > = new Map();
 
   @query('.lyrics-container')
   private lyricsContainer?: HTMLElement;
+
+  private lastInstrumentalIndex: number | null = null;
 
   connectedCallback() {
     super.connectedCallback();
@@ -284,11 +319,15 @@ export class AmLyrics extends LitElement {
       const oldTime = (changedProperties.get('currentTime') as number) ?? 0;
       const timeDiff = Math.abs(this.currentTime - oldTime);
 
-      const newLineIndex = this.findActiveLineIndex(this.currentTime);
+      const newActiveLines = this.findActiveLineIndices(this.currentTime);
 
-      // Reset animation if line changes or if we skip time.
+      // Reset animation if active lines change or if we skip time.
       // A threshold of 0.5s (500ms) is used to detect a "skip".
-      if (newLineIndex !== this.activeLineIndex || timeDiff > 0.5) {
+      const linesChanged = !AmLyrics.arraysEqual(
+        newActiveLines,
+        this.activeLineIndices,
+      );
+      if (linesChanged || timeDiff > 0.5) {
         this.startAnimationFromTime(this.currentTime);
       }
       // For small, continuous updates, we do nothing and let the animation loop handle it.
@@ -296,21 +335,73 @@ export class AmLyrics extends LitElement {
 
     if (
       this.autoScroll &&
-      changedProperties.has('activeLineIndex') &&
-      this.activeLineIndex !== -1
+      changedProperties.has('activeLineIndices') &&
+      this.activeLineIndices.length > 0
     ) {
       this.scrollToActiveLine();
     }
-  }
 
-  private findActiveLineIndex(time: number): number {
-    if (!this.lyrics) return -1;
-    for (let i = 0; i < this.lyrics.length; i += 1) {
-      if (time >= this.lyrics[i].timestamp && time <= this.lyrics[i].endtime) {
-        return i;
+    // Smoothly scroll to the indicator when entering a gap
+    const instrumental = this.findInstrumentalGapAt(this.currentTime);
+    const idx = instrumental ? instrumental.insertBeforeIndex : null;
+    if (this.autoScroll) {
+      if (idx !== null && idx !== this.lastInstrumentalIndex) {
+        this.scrollToInstrumental(idx);
+        this.lastInstrumentalIndex = idx;
+      } else if (idx === null && this.lastInstrumentalIndex !== null) {
+        // Gap ended — gently scroll to the line that begins now
+        this.scrollToInstrumental(this.lastInstrumentalIndex);
+        this.lastInstrumentalIndex = null;
       }
     }
-    return -1;
+  }
+
+  private static arraysEqual(a: number[], b: number[]): boolean {
+    return a.length === b.length && a.every((val, i) => val === b[i]);
+  }
+
+  private findActiveLineIndices(time: number): number[] {
+    if (!this.lyrics) return [];
+    const activeLines: number[] = [];
+    for (let i = 0; i < this.lyrics.length; i += 1) {
+      if (time >= this.lyrics[i].timestamp && time <= this.lyrics[i].endtime) {
+        activeLines.push(i);
+      }
+    }
+    return activeLines;
+  }
+
+  private findInstrumentalGapAt(
+    time: number,
+  ): { insertBeforeIndex: number; gapStart: number; gapEnd: number } | null {
+    if (!this.lyrics || this.lyrics.length === 0) return null;
+
+    // Start-of-song gap: from 0 to first line timestamp
+    const first = this.lyrics[0];
+    if (time >= 0 && time < first.timestamp) {
+      const gapStart = 0;
+      const gapEnd = first.timestamp;
+      if (gapEnd - gapStart >= INSTRUMENTAL_THRESHOLD_MS) {
+        return { insertBeforeIndex: 0, gapStart, gapEnd };
+      }
+      return null;
+    }
+
+    // Find consecutive pair (i, i+1) that bounds the current time
+    for (let i = 0; i < this.lyrics.length - 1; i += 1) {
+      const curr = this.lyrics[i];
+      const next = this.lyrics[i + 1];
+      const gapStart = curr.endtime;
+      const gapEnd = next.timestamp;
+      if (time > gapStart && time < gapEnd) {
+        if (gapEnd - gapStart >= INSTRUMENTAL_THRESHOLD_MS) {
+          return { insertBeforeIndex: i + 1, gapStart, gapEnd };
+        }
+        return null;
+      }
+    }
+
+    return null;
   }
 
   private startAnimationFromTime(time: number) {
@@ -321,43 +412,50 @@ export class AmLyrics extends LitElement {
 
     if (!this.lyrics) return;
 
-    const lineIndex = this.findActiveLineIndex(time);
-    this.activeLineIndex = lineIndex;
+    const activeLineIndices = this.findActiveLineIndices(time);
+    this.activeLineIndices = activeLineIndices;
 
-    if (lineIndex === -1) {
-      this.activeMainWordIndex = -1;
-      this.activeBackgroundWordIndex = -1;
-      this.mainWordAnimation = { startTime: 0, duration: 0 };
-      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+    // Clear previous state
+    this.activeMainWordIndices.clear();
+    this.activeBackgroundWordIndices.clear();
+    this.mainWordAnimations.clear();
+    this.backgroundWordAnimations.clear();
+    this.mainWordProgress.clear();
+    this.backgroundWordProgress.clear();
+
+    if (activeLineIndices.length === 0) {
       return;
     }
 
-    const line = this.lyrics[lineIndex];
+    // Set up animations for each active line
+    for (const lineIndex of activeLineIndices) {
+      const line = this.lyrics[lineIndex];
 
-    // Find main word based on the reset time
-    let mainWordIdx = -1;
-    for (let i = 0; i < line.text.length; i += 1) {
-      if (time >= line.text[i].timestamp && time <= line.text[i].endtime) {
-        mainWordIdx = i;
-        break;
-      }
-    }
-    this.activeMainWordIndex = mainWordIdx;
-
-    // Find background word based on the reset time
-    let backWordIdx = -1;
-    if (line.backgroundText) {
-      for (let i = 0; i < line.backgroundText.length; i += 1) {
-        if (
-          time >= line.backgroundText[i].timestamp &&
-          time <= line.backgroundText[i].endtime
-        ) {
-          backWordIdx = i;
+      // Find main word based on the reset time
+      let mainWordIdx = -1;
+      for (let i = 0; i < line.text.length; i += 1) {
+        if (time >= line.text[i].timestamp && time <= line.text[i].endtime) {
+          mainWordIdx = i;
           break;
         }
       }
+      this.activeMainWordIndices.set(lineIndex, mainWordIdx);
+
+      // Find background word based on the reset time
+      let backWordIdx = -1;
+      if (line.backgroundText) {
+        for (let i = 0; i < line.backgroundText.length; i += 1) {
+          if (
+            time >= line.backgroundText[i].timestamp &&
+            time <= line.backgroundText[i].endtime
+          ) {
+            backWordIdx = i;
+            break;
+          }
+        }
+      }
+      this.activeBackgroundWordIndices.set(lineIndex, backWordIdx);
     }
-    this.activeBackgroundWordIndex = backWordIdx;
 
     // With the state correctly set, configure the animation parameters
     this.setupAnimations();
@@ -371,10 +469,14 @@ export class AmLyrics extends LitElement {
   private updateActiveLineAndWords() {
     if (!this.lyrics) return;
 
-    const lineIdx = this.findActiveLineIndex(this.currentTime);
-    this.activeLineIndex = lineIdx;
+    const activeLineIndices = this.findActiveLineIndices(this.currentTime);
+    this.activeLineIndices = activeLineIndices;
 
-    if (lineIdx !== -1) {
+    // Clear previous state
+    this.activeMainWordIndices.clear();
+    this.activeBackgroundWordIndices.clear();
+
+    for (const lineIdx of activeLineIndices) {
       const line = this.lyrics[lineIdx];
       let mainWordIdx = -1;
       for (let i = 0; i < line.text.length; i += 1) {
@@ -386,7 +488,7 @@ export class AmLyrics extends LitElement {
           break;
         }
       }
-      this.activeMainWordIndex = mainWordIdx;
+      this.activeMainWordIndices.set(lineIdx, mainWordIdx);
 
       let backWordIdx = -1;
       if (line.backgroundText) {
@@ -400,46 +502,51 @@ export class AmLyrics extends LitElement {
           }
         }
       }
-      this.activeBackgroundWordIndex = backWordIdx;
-    } else {
-      this.activeMainWordIndex = -1;
-      this.activeBackgroundWordIndex = -1;
+      this.activeBackgroundWordIndices.set(lineIdx, backWordIdx);
     }
   }
 
   private setupAnimations() {
-    if (this.activeLineIndex === -1 || !this.lyrics) {
-      this.mainWordAnimation = { startTime: 0, duration: 0 };
-      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+    if (this.activeLineIndices.length === 0 || !this.lyrics) {
+      this.mainWordAnimations.clear();
+      this.backgroundWordAnimations.clear();
       return;
     }
 
-    const line = this.lyrics[this.activeLineIndex];
+    for (const lineIndex of this.activeLineIndices) {
+      const line = this.lyrics[lineIndex];
+      const mainWordIndex = this.activeMainWordIndices.get(lineIndex) ?? -1;
+      const backgroundWordIndex =
+        this.activeBackgroundWordIndices.get(lineIndex) ?? -1;
 
-    // Main word animation
-    if (this.activeMainWordIndex !== -1) {
-      const word = line.text[this.activeMainWordIndex];
-      const wordDuration = word.endtime - word.timestamp;
-      const elapsedInWord = this.currentTime - word.timestamp;
-      this.mainWordAnimation = {
-        startTime: performance.now() - elapsedInWord,
-        duration: wordDuration,
-      };
-    } else {
-      this.mainWordAnimation = { startTime: 0, duration: 0 };
-    }
+      // Main word animation
+      if (mainWordIndex !== -1) {
+        const word = line.text[mainWordIndex];
+        const wordDuration = word.endtime - word.timestamp;
+        const elapsedInWord = this.currentTime - word.timestamp;
+        this.mainWordAnimations.set(lineIndex, {
+          startTime: performance.now() - elapsedInWord,
+          duration: wordDuration,
+        });
+      } else {
+        this.mainWordAnimations.set(lineIndex, { startTime: 0, duration: 0 });
+      }
 
-    // Background word animation
-    if (this.activeBackgroundWordIndex !== -1 && line.backgroundText) {
-      const word = line.backgroundText[this.activeBackgroundWordIndex];
-      const wordDuration = word.endtime - word.timestamp;
-      const elapsedInWord = this.currentTime - word.timestamp;
-      this.backgroundWordAnimation = {
-        startTime: performance.now() - elapsedInWord,
-        duration: wordDuration,
-      };
-    } else {
-      this.backgroundWordAnimation = { startTime: 0, duration: 0 };
+      // Background word animation
+      if (backgroundWordIndex !== -1 && line.backgroundText) {
+        const word = line.backgroundText[backgroundWordIndex];
+        const wordDuration = word.endtime - word.timestamp;
+        const elapsedInWord = this.currentTime - word.timestamp;
+        this.backgroundWordAnimations.set(lineIndex, {
+          startTime: performance.now() - elapsedInWord,
+          duration: wordDuration,
+        });
+      } else {
+        this.backgroundWordAnimations.set(lineIndex, {
+          startTime: 0,
+          duration: 0,
+        });
+      }
     }
   }
 
@@ -455,12 +562,14 @@ export class AmLyrics extends LitElement {
   }
 
   private scrollToActiveLine() {
-    if (!this.lyricsContainer || this.activeLineIndex < 0) {
+    if (!this.lyricsContainer || this.activeLineIndices.length === 0) {
       return;
     }
 
+    // Scroll to the first active line
+    const firstActiveLineIndex = Math.min(...this.activeLineIndices);
     const activeLineElement = this.lyricsContainer.querySelector(
-      `.lyrics-line:nth-child(${this.activeLineIndex + 1})`,
+      `.lyrics-line:nth-child(${firstActiveLineIndex + 1})`,
     ) as HTMLElement;
 
     if (activeLineElement) {
@@ -468,8 +577,23 @@ export class AmLyrics extends LitElement {
       const lineTop = activeLineElement.offsetTop;
       const lineHeight = activeLineElement.clientHeight;
 
-      this.lyricsContainer.scrollTop =
-        lineTop - containerHeight / 2 + lineHeight / 2;
+      const top = lineTop - containerHeight / 2 + lineHeight / 2;
+      this.lyricsContainer.scrollTo({ top, behavior: 'smooth' });
+    }
+  }
+
+  private scrollToInstrumental(insertBeforeIndex: number) {
+    if (!this.lyricsContainer) return;
+    const target = this.lyricsContainer.querySelector(
+      `.lyrics-line:nth-child(${insertBeforeIndex + 1})`,
+    ) as HTMLElement | null;
+
+    if (target) {
+      const containerHeight = this.lyricsContainer.clientHeight;
+      const lineTop = target.offsetTop;
+      const lineHeight = target.clientHeight;
+      const top = lineTop - containerHeight / 2 + lineHeight / 2;
+      this.lyricsContainer.scrollTo({ top, behavior: 'smooth' });
     }
   }
 
@@ -477,8 +601,7 @@ export class AmLyrics extends LitElement {
     const now = performance.now();
     let running = false;
 
-    const line = this.lyrics?.[this.activeLineIndex];
-    if (!line) {
+    if (!this.lyrics || this.activeLineIndices.length === 0) {
       if (this.animationFrameId) {
         cancelAnimationFrame(this.animationFrameId);
         this.animationFrameId = undefined;
@@ -486,84 +609,104 @@ export class AmLyrics extends LitElement {
       return;
     }
 
-    // Main text animation
-    if (this.mainWordAnimation.duration > 0) {
-      const elapsed = now - this.mainWordAnimation.startTime;
-      if (elapsed >= 0) {
-        const progress = Math.min(1, elapsed / this.mainWordAnimation.duration);
-        this.mainWordProgress = progress;
+    // Process each active line
+    for (const lineIndex of this.activeLineIndices) {
+      const line = this.lyrics[lineIndex];
+      const mainWordAnimation = this.mainWordAnimations.get(lineIndex);
 
-        if (progress < 1) {
-          running = true;
-        } else {
-          // Word animation finished. Look for the next word in the same line.
-          this.mainWordAnimation.duration = 0;
-          const nextWordIndex = this.activeMainWordIndex + 1;
-          if (
-            this.activeMainWordIndex !== -1 &&
-            nextWordIndex < line.text.length
-          ) {
-            const currentWord = line.text[this.activeMainWordIndex];
-            const nextWord = line.text[nextWordIndex];
+      // Main text animation
+      if (mainWordAnimation && mainWordAnimation.duration > 0) {
+        const elapsed = now - mainWordAnimation.startTime;
+        if (elapsed >= 0) {
+          const progress = Math.min(1, elapsed / mainWordAnimation.duration);
+          this.mainWordProgress.set(lineIndex, progress);
 
-            this.activeMainWordIndex = nextWordIndex;
-            const gap = nextWord.timestamp - currentWord.endtime;
-            const nextWordDuration = nextWord.endtime - nextWord.timestamp;
-
-            this.mainWordAnimation = {
-              startTime: performance.now() + gap,
-              duration: nextWordDuration,
-            };
+          if (progress < 1) {
             running = true;
+          } else {
+            // Word animation finished. Look for the next word in the same line.
+            const currentMainWordIndex =
+              this.activeMainWordIndices.get(lineIndex) ?? -1;
+            const nextWordIndex = currentMainWordIndex + 1;
+            if (
+              currentMainWordIndex !== -1 &&
+              nextWordIndex < line.text.length
+            ) {
+              const currentWord = line.text[currentMainWordIndex];
+              const nextWord = line.text[nextWordIndex];
+
+              this.activeMainWordIndices.set(lineIndex, nextWordIndex);
+              const gap = nextWord.timestamp - currentWord.endtime;
+              const nextWordDuration = nextWord.endtime - nextWord.timestamp;
+
+              this.mainWordAnimations.set(lineIndex, {
+                startTime: performance.now() + gap,
+                duration: nextWordDuration,
+              });
+              running = true;
+            } else {
+              this.mainWordAnimations.set(lineIndex, {
+                startTime: 0,
+                duration: 0,
+              });
+            }
           }
+        } else {
+          // Waiting in a gap
+          this.mainWordProgress.set(lineIndex, 0);
+          running = true;
         }
-      } else {
-        // Waiting in a gap
-        this.mainWordProgress = 0;
-        running = true;
       }
-    }
 
-    // Background text animation
-    if (this.backgroundWordAnimation.duration > 0) {
-      const elapsed = now - this.backgroundWordAnimation.startTime;
-      if (elapsed >= 0) {
-        const progress = Math.min(
-          1,
-          elapsed / this.backgroundWordAnimation.duration,
-        );
-        this.backgroundWordProgress = progress;
+      // Background text animation
+      const backgroundWordAnimation =
+        this.backgroundWordAnimations.get(lineIndex);
+      if (backgroundWordAnimation && backgroundWordAnimation.duration > 0) {
+        const elapsed = now - backgroundWordAnimation.startTime;
+        if (elapsed >= 0) {
+          const progress = Math.min(
+            1,
+            elapsed / backgroundWordAnimation.duration,
+          );
+          this.backgroundWordProgress.set(lineIndex, progress);
 
-        if (progress < 1) {
-          running = true;
-        } else {
-          // Word animation finished. Look for the next word in the same line.
-          this.backgroundWordAnimation.duration = 0;
-          if (
-            line.backgroundText &&
-            this.activeBackgroundWordIndex !== -1 &&
-            this.activeBackgroundWordIndex < line.backgroundText.length - 1
-          ) {
-            const nextWordIndex = this.activeBackgroundWordIndex + 1;
-            const currentWord =
-              line.backgroundText[this.activeBackgroundWordIndex];
-            const nextWord = line.backgroundText[nextWordIndex];
-
-            this.activeBackgroundWordIndex = nextWordIndex;
-            const gap = nextWord.timestamp - currentWord.endtime;
-            const nextWordDuration = nextWord.endtime - nextWord.timestamp;
-
-            this.backgroundWordAnimation = {
-              startTime: performance.now() + gap,
-              duration: nextWordDuration,
-            };
+          if (progress < 1) {
             running = true;
+          } else {
+            // Word animation finished. Look for the next word in the same line.
+            const currentBackgroundWordIndex =
+              this.activeBackgroundWordIndices.get(lineIndex) ?? -1;
+            if (
+              line.backgroundText &&
+              currentBackgroundWordIndex !== -1 &&
+              currentBackgroundWordIndex < line.backgroundText.length - 1
+            ) {
+              const nextWordIndex = currentBackgroundWordIndex + 1;
+              const currentWord =
+                line.backgroundText[currentBackgroundWordIndex];
+              const nextWord = line.backgroundText[nextWordIndex];
+
+              this.activeBackgroundWordIndices.set(lineIndex, nextWordIndex);
+              const gap = nextWord.timestamp - currentWord.endtime;
+              const nextWordDuration = nextWord.endtime - nextWord.timestamp;
+
+              this.backgroundWordAnimations.set(lineIndex, {
+                startTime: performance.now() + gap,
+                duration: nextWordDuration,
+              });
+              running = true;
+            } else {
+              this.backgroundWordAnimations.set(lineIndex, {
+                startTime: 0,
+                duration: 0,
+              });
+            }
           }
+        } else {
+          // Waiting in a gap
+          this.backgroundWordProgress.set(lineIndex, 0);
+          running = true;
         }
-      } else {
-        // Waiting in a gap
-        this.backgroundWordProgress = 0;
-        running = true;
       }
     }
 
@@ -594,10 +737,38 @@ export class AmLyrics extends LitElement {
       if (!this.lyrics || this.lyrics.length === 0) {
         return html`<div class="no-lyrics">No lyrics found.</div>`;
       }
+
+      const instrumental = this.findInstrumentalGapAt(this.currentTime);
+
       return this.lyrics.map((line, lineIndex) => {
-        const isLineActive = lineIndex === this.activeLineIndex;
+        const isLineActive = this.activeLineIndices.includes(lineIndex);
+        const bgIsPlayingNow =
+          line.backgroundText && line.backgroundText.length > 0
+            ? line.backgroundText.some(
+                syl =>
+                  this.currentTime >= syl.timestamp &&
+                  this.currentTime <= syl.endtime,
+              )
+            : false;
+
+        let maybeInstrumentalBlock: unknown = null;
+        if (instrumental && instrumental.insertBeforeIndex === lineIndex) {
+          const remainingSeconds = Math.max(
+            0,
+            Math.ceil((instrumental.gapEnd - this.currentTime) / 1000),
+          );
+          if (remainingSeconds > 0) {
+            maybeInstrumentalBlock = html`<div
+              class="instrumental-line"
+              aria-label="Instrumental gap"
+            >
+              <span class="instrumental-duration">${remainingSeconds}s</span>
+            </div>`;
+          }
+        }
 
         return html`
+          ${maybeInstrumentalBlock}
           <div
             class="lyrics-line ${line.oppositeTurn
               ? 'opposite-turn'
@@ -612,16 +783,20 @@ export class AmLyrics extends LitElement {
           >
             <span>
               ${line.text.map((syllable, wordIndex) => {
+                const activeMainWordIndex =
+                  this.activeMainWordIndices.get(lineIndex) ?? -1;
                 const isWordActive =
-                  isLineActive && wordIndex === this.activeMainWordIndex;
+                  isLineActive && wordIndex === activeMainWordIndex;
                 const isWordPassed =
                   isLineActive &&
-                  (wordIndex < this.activeMainWordIndex ||
-                    (this.activeMainWordIndex === -1 &&
+                  (wordIndex < activeMainWordIndex ||
+                    (activeMainWordIndex === -1 &&
                       this.currentTime > syllable.endtime));
                 let progress = 0;
                 if (isWordActive) {
-                  progress = this.interpolate ? this.mainWordProgress : 1;
+                  progress = this.interpolate
+                    ? (this.mainWordProgress.get(lineIndex) ?? 0)
+                    : 1;
                 } else if (isWordPassed) {
                   progress = 1;
                 }
@@ -639,21 +814,24 @@ export class AmLyrics extends LitElement {
                 >`;
               })}
             </span>
-            ${line.backgroundText && line.backgroundText.length > 0
+            ${line.backgroundText &&
+            line.backgroundText.length > 0 &&
+            (isLineActive || bgIsPlayingNow)
               ? html`<span class="background-text">
                   ${line.backgroundText.map((syllable, wordIndex) => {
+                    const activeBackgroundWordIndex =
+                      this.activeBackgroundWordIndices.get(lineIndex) ?? -1;
                     const isWordActive =
-                      isLineActive &&
-                      wordIndex === this.activeBackgroundWordIndex;
+                      isLineActive && wordIndex === activeBackgroundWordIndex;
                     const isWordPassed =
                       isLineActive &&
-                      (wordIndex < this.activeBackgroundWordIndex ||
-                        (this.activeBackgroundWordIndex === -1 &&
+                      (wordIndex < activeBackgroundWordIndex ||
+                        (activeBackgroundWordIndex === -1 &&
                           this.currentTime > syllable.endtime));
                     let progress = 0;
                     if (isWordActive) {
                       progress = this.interpolate
-                        ? this.backgroundWordProgress
+                        ? (this.backgroundWordProgress.get(lineIndex) ?? 0)
                         : 1;
                     } else if (isWordPassed) {
                       progress = 1;
@@ -662,7 +840,7 @@ export class AmLyrics extends LitElement {
                     return html`<span
                       class="progress-text"
                       style="--line-progress: ${progress *
-                      100}%; ; margin-right: ${syllable.part
+                      100}%; margin-right: ${syllable.part
                         ? '0'
                         : '.5ch'}; --transition-style: ${isLineActive
                         ? 'all'
