@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.4.2';
+const VERSION = '0.4.3';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 interface Syllable {
