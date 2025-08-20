@@ -3,7 +3,7 @@
   "description": "Web Component for Apple Music lyrics. Follows open-wc recommendations.",
   "license": "MPL-2.0",
   "author": "uimaxbai",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "main": "dist/src/index.js",
   "module": "dist/src/index.js",
@@ -17,7 +17,7 @@
     "analyze": "cem analyze --litelement",
     "start": "concurrently -k -r \"rollup -c --watch\" \"web-dev-server\"",
     "build": "echo 'Change the version in both files!!!' && rimraf dist && rollup -c rollup.config.js",
-    "prepublish": "tsc && npm run analyze -- --exclude dist",
+    "prepublish": "npm run build && npm run analyze -- --exclude dist",
     "lint": "eslint --ext .ts,.html . --ignore-path .gitignore && prettier \"**/*.ts\" --check --ignore-path .gitignore",
     "format": "eslint --ext .ts,.html . --fix --ignore-path .gitignore && prettier \"**/*.ts\" --write --ignore-path .gitignore",
     "prepare": "husky"
