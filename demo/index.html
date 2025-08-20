@@ -50,6 +50,7 @@
   -->
 
   <button id="start-button">Start</button>
+  <button id="reset-button">Reset</button>
 
   <script type="module">
     import '../dist/src/am-lyrics.js';
@@ -99,10 +100,21 @@
       }
     }
 
+    function resetPlayback() {
+      stopAnimation();
+      const amLyrics = document.querySelector('am-lyrics');
+      if (amLyrics) {
+        // Set duration to -1 to trigger reset
+        amLyrics.duration = -1;
+      }
+      songStartTime = 0;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       const amLyrics = document.querySelector('am-lyrics');
       const searchButton = document.querySelector('#search-button');
       const startButton = document.querySelector('#start-button');
+      const resetButton = document.querySelector('#reset-button');
 
       if (amLyrics) {
         amLyrics.addEventListener('line-click', handleLineClick);
@@ -114,6 +126,10 @@
 
       if (startButton) {
         startButton.addEventListener('click', startPlayback);
+      }
+
+      if (resetButton) {
+        resetButton.addEventListener('click', resetPlayback);
       }
     });
   </script>

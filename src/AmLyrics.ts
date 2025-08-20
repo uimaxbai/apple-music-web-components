@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.4.7';
+const VERSION = '0.5.0';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 interface Syllable {
@@ -65,10 +65,16 @@ export class AmLyrics extends LitElement {
       overflow-wrap: break-word;
       display: flex;
       flex-direction: column; /* Allow reordering of main and background text */
+      line-height: 1.2; /* Tighten line height to reduce gaps */
+      gap: 2px; /* Small consistent gap between main and background text */
+      /* Performance optimizations */
+      contain: layout style paint;
+      transform: translate3d(0, 0, 0);
     }
 
     .lyrics-line > span {
       flex-shrink: 0; /* Prevent the main text span from shrinking */
+      margin: 0; /* Remove default margins */
     }
 
     .lyrics-line:hover {
@@ -90,27 +96,28 @@ export class AmLyrics extends LitElement {
     .progress-text {
       position: relative;
       display: inline-block;
-      overflow: hidden; /* Hide any overflow from the pseudo-element */
+      /* Use background gradient for highlighting instead of pseudo-element */
+      background: linear-gradient(
+        to right,
+        var(--am-lyrics-highlight-color, var(--highlight-color, #000)) 0%,
+        var(--am-lyrics-highlight-color, var(--highlight-color, #000))
+          var(--line-progress, 0%),
+        #888 var(--line-progress, 0%),
+        #888 100%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      /* Fallback for browsers that don't support background-clip: text */
+      color: #888;
+      /* Performance optimizations */
+      transform: translate3d(0, 0, 0);
+      will-change: background-size;
     }
 
     .progress-text::before {
-      content: attr(data-text);
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: var(--line-progress, 0%);
-      color: var(
-        --am-lyrics-highlight-color,
-        var(--highlight-color, #000)
-      ); /* CSS variable takes precedence */
-      overflow: hidden;
-      /* Allow text wrapping to match the main text */
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-      /* Ensure the pseudo-element wraps exactly like the main text */
-      white-space: pre-wrap;
-      transition: var(--transition-style, all) 0.05s
-        cubic-bezier(0.25, 0.1, 0.25, 1.5);
+      /* Remove the pseudo-element approach entirely */
+      display: none;
     }
 
     .active-word {
@@ -128,18 +135,17 @@ export class AmLyrics extends LitElement {
       color: rgba(136, 136, 136, 0.8);
       font-size: 0.8em; /* a bit smaller than main line */
       font-style: normal; /* no italics */
-      margin: 4px 0; /* default margin for positioning */
+      margin: 0; /* Remove margins - use flexbox gap instead */
       flex-shrink: 0; /* Prevent shrinking */
+      line-height: 1.1; /* Slightly tighter line height for background text */
     }
 
     .background-text.before {
       order: -1; /* Place before main text when background starts earlier */
-      margin: 0 0 4px 0; /* place above the main line */
     }
 
     .background-text.after {
       order: 1; /* Place after main text when background starts later */
-      margin: 4px 0 0 0; /* place below the main line */
     }
     .progress-text:last-child {
       margin-right: 0 !important; /* Remove margin for the last word */
@@ -270,6 +276,13 @@ export class AmLyrics extends LitElement {
 
   private lastInstrumentalIndex: number | null = null;
 
+  private userScrollTimeoutId?: number;
+
+  @state()
+  private isUserScrolling = false;
+
+  private isProgrammaticScroll = false;
+
   connectedCallback() {
     super.connectedCallback();
     this.fetchLyrics();
@@ -279,6 +292,9 @@ export class AmLyrics extends LitElement {
     super.disconnectedCallback();
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
+    }
+    if (this.userScrollTimeoutId) {
+      clearTimeout(this.userScrollTimeoutId);
     }
   }
 
@@ -337,9 +353,50 @@ export class AmLyrics extends LitElement {
 
   firstUpdated() {
     this.fetchLyrics();
+
+    // Set up scroll event listener for user scroll detection
+    if (this.lyricsContainer) {
+      this.lyricsContainer.addEventListener(
+        'scroll',
+        this.handleUserScroll.bind(this),
+        { passive: true },
+      );
+    }
   }
 
   updated(changedProperties: Map<string | number | symbol, unknown>) {
+    // Handle duration reset (-1 stops playback and resets currentTime to 0)
+    if (changedProperties.has('duration') && this.duration === -1) {
+      this.currentTime = 0;
+      this.activeLineIndices = [];
+      this.activeMainWordIndices.clear();
+      this.activeBackgroundWordIndices.clear();
+      this.mainWordProgress.clear();
+      this.backgroundWordProgress.clear();
+      this.mainWordAnimations.clear();
+      this.backgroundWordAnimations.clear();
+      this.isUserScrolling = false;
+
+      // Cancel any running animations
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = undefined;
+      }
+
+      // Clear user scroll timeout
+      if (this.userScrollTimeoutId) {
+        clearTimeout(this.userScrollTimeoutId);
+        this.userScrollTimeoutId = undefined;
+      }
+
+      // Scroll to top
+      if (this.lyricsContainer) {
+        this.lyricsContainer.scrollTop = 0;
+      }
+
+      return; // Exit early, don't process other changes
+    }
+
     if (
       (changedProperties.has('query') ||
         changedProperties.has('musicId') ||
@@ -369,6 +426,7 @@ export class AmLyrics extends LitElement {
 
     if (
       this.autoScroll &&
+      !this.isUserScrolling &&
       changedProperties.has('activeLineIndices') &&
       this.activeLineIndices.length > 0
     ) {
@@ -378,7 +436,7 @@ export class AmLyrics extends LitElement {
     // Smoothly scroll to the indicator when entering a gap
     const instrumental = this.findInstrumentalGapAt(this.currentTime);
     const idx = instrumental ? instrumental.insertBeforeIndex : null;
-    if (this.autoScroll) {
+    if (this.autoScroll && !this.isUserScrolling) {
       if (idx !== null && idx !== this.lastInstrumentalIndex) {
         this.scrollToInstrumental(idx);
         this.lastInstrumentalIndex = idx;
@@ -392,6 +450,32 @@ export class AmLyrics extends LitElement {
 
   private static arraysEqual(a: number[], b: number[]): boolean {
     return a.length === b.length && a.every((val, i) => val === b[i]);
+  }
+
+  private handleUserScroll() {
+    // Ignore programmatic scrolls
+    if (this.isProgrammaticScroll) {
+      return;
+    }
+
+    // Mark that user is currently scrolling
+    this.isUserScrolling = true;
+
+    // Clear any existing timeout
+    if (this.userScrollTimeoutId) {
+      clearTimeout(this.userScrollTimeoutId);
+    }
+
+    // Set timeout to re-enable auto-scroll after 2 seconds of no scrolling
+    this.userScrollTimeoutId = window.setTimeout(() => {
+      this.isUserScrolling = false;
+      this.userScrollTimeoutId = undefined;
+
+      // Optionally scroll back to current active line when re-enabling auto-scroll
+      if (this.activeLineIndices.length > 0) {
+        this.scrollToActiveLine();
+      }
+    }, 2000);
   }
 
   private findActiveLineIndices(time: number): number[] {
@@ -646,7 +730,12 @@ export class AmLyrics extends LitElement {
 
       // Use requestAnimationFrame for smoother iOS performance
       requestAnimationFrame(() => {
+        this.isProgrammaticScroll = true;
         this.lyricsContainer?.scrollTo({ top, behavior: 'smooth' });
+        // Reset the flag after a short delay to allow the scroll to complete
+        setTimeout(() => {
+          this.isProgrammaticScroll = false;
+        }, 100);
       });
     }
   }
@@ -679,7 +768,12 @@ export class AmLyrics extends LitElement {
 
       // Use requestAnimationFrame for smoother iOS performance
       requestAnimationFrame(() => {
+        this.isProgrammaticScroll = true;
         this.lyricsContainer?.scrollTo({ top, behavior: 'smooth' });
+        // Reset the flag after a short delay to allow the scroll to complete
+        setTimeout(() => {
+          this.isProgrammaticScroll = false;
+        }, 100);
       });
     }
   }
@@ -878,7 +972,6 @@ export class AmLyrics extends LitElement {
                     : '.5ch'}; --transition-style: ${isLineActive
                     ? 'all'
                     : 'color'}"
-                  data-text="${syllable.text}"
                   >${syllable.text}</span
                 >`;
               })}
@@ -914,7 +1007,6 @@ export class AmLyrics extends LitElement {
                 : '.5ch'}; --transition-style: ${isLineActive
                 ? 'all'
                 : 'color'}"
-              data-text="${syllable.text}${syllable.part ? ' ' : ''}"
               >${syllable.text}</span
             >`;
           })}

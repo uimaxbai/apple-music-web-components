@@ -8,7 +8,6 @@ This webcomponent follows the [open-wc](https://github.com/open-wc/open-wc) reco
 npm install @uimaxbai/am-lyrics # For react users and those crazy enough to not use the CDN
 ```
 
-
 Or, just use the CDN.
 
 ## Usage
@@ -22,6 +21,7 @@ Or, just use the CDN.
   query="Uptown Funk"
   music-id=""
   isrc=""
+  current-time="0"
   duration=""
   highlight-color="#f00"
   hover-background-color="#e0e0e0"
@@ -30,21 +30,55 @@ Or, just use the CDN.
   autoscroll
   interpolate
 ></am-lyrics>
-<!--
-<am-lyrics
-  query="Uptown Funk"               // Search Apple Music for a song
-  music-id=""                       // Use this if you have a specific song ID from Apple Music (almost never)
-  isrc=""                           // To be used WITH a query, just to double check if it is correct
-  duration=""                       // Duration of your timer (the component takes it in and syncs to the words. See JS below)
-  highlight-color="#000"            // Color of the highlighted words
-  hover-background-color="#f0f0f0"  // Color of the line when you hover over it
-  hide-source-footer="false"        // Controls whether the footer at the bottom is a larger one or a more compact GitHub link.
-  font-family="'Inter', sans-serif" // BYOF
-  autoscroll                        // Self-explanatory
-  interpolate                       // Whether to animate the progress of the words
-  @line-click=${handleLineClick}    // Event listener for line clicks to skip to that part of the song.
-></am-lyrics>
--->
+```
+
+## Properties & Attributes
+
+| Property/Attribute | Type | Default | Description |
+|-------------------|------|---------|-------------|
+| `query` | `string` | `undefined` | Search query for Apple Music song |
+| `music-id` | `string` | `undefined` | Specific Apple Music song ID (rarely used) |
+| `isrc` | `string` | `undefined` | ISRC code to verify correct song match |
+| `current-time` | `number` | `0` | Current playback time in milliseconds |
+| `duration` | `number` | `undefined` | Song duration in milliseconds. **Set to `-1` to reset/stop playback** |
+| `highlight-color` | `string` | `"#000"` | Color for highlighted/active lyrics |
+| `hover-background-color` | `string` | `"#f0f0f0"` | Background color on line hover |
+| `hide-source-footer` | `boolean` | `false` | Hide/show the source attribution footer |
+| `font-family` | `string` | `undefined` | Custom font family for lyrics |
+| `autoscroll` | `boolean` | `true` | Enable automatic scrolling to active lyrics |
+| `interpolate` | `boolean` | `true` | Enable smooth word-by-word highlighting animation |
+
+## CSS Custom Properties (CSS Variables)
+
+You can customize the appearance using CSS custom properties:
+
+```css
+am-lyrics {
+  /* Highlight color for active lyrics */
+  --am-lyrics-highlight-color: #007aff;
+  
+  /* Hover background color (fallback) */
+  --hover-background-color: #f5f5f5;
+  
+  /* Alternative highlight color (fallback) */
+  --highlight-color: #000;
+}
+```
+
+**Note**: The CSS variables take precedent over the set properties above.
+
+
+
+## Events
+
+### `line-click`
+
+Fired when a user clicks on a lyrics line.
+
+```javascript
+amLyrics.addEventListener('line-click', (event) => {
+  console.log('Seek to:', event.detail.timestamp); // timestamp in milliseconds
+});
 ```
 
 ### For React Users
@@ -141,7 +175,7 @@ Using NextJS? See [`next.md`](./next.md).
 
 The timer needs to be defined by yourself. For example:
 
-### Just play the lyrics!
+### Just play the lyrics
 
 ```html
 <script>
