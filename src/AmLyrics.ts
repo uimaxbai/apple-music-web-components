@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.4.6';
+const VERSION = '0.4.7';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 interface Syllable {
@@ -104,11 +104,11 @@ export class AmLyrics extends LitElement {
         var(--highlight-color, #000)
       ); /* CSS variable takes precedence */
       overflow: hidden;
-      white-space: nowrap; /* Prevent text wrapping in the pseudo-element */
-      /* Spring animation */
-      /* transition: width 0.05s ; */
+      /* Allow text wrapping to match the main text */
       word-wrap: break-word;
       overflow-wrap: break-word;
+      /* Ensure the pseudo-element wraps exactly like the main text */
+      white-space: pre-wrap;
       transition: var(--transition-style, all) 0.05s
         cubic-bezier(0.25, 0.1, 0.25, 1.5);
     }
