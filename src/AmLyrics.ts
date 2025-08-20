@@ -40,9 +40,11 @@ export class AmLyrics extends LitElement {
       padding: 20px;
       border-radius: 8px;
       background-color: transparent;
-      height: 300px; /* Example height */
+      width: 100%;
+      height: 100%;
       overflow-y: auto;
       scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch; /* iOS smooth scrolling */
     }
 
     .lyrics-line {
@@ -55,10 +57,15 @@ export class AmLyrics extends LitElement {
       position: relative;
       font-size: 2em; /* Increased font size */
       color: #888; /* Default text color to gray */
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .lyrics-line:hover {
-      background-color: var(--hover-background-color, #f0f0f0);
+      background-color: var(
+        --am-lyrics-hover-background,
+        var(--hover-background-color, #f0f0f0)
+      );
     }
 
     .opposite-turn {
@@ -81,11 +88,15 @@ export class AmLyrics extends LitElement {
       top: 0;
       left: 0;
       width: var(--line-progress, 0%);
-      color: var(--highlight-color, #000); /* Highlight color to black */
+      color: var(
+        --am-lyrics-highlight-color,
+        var(--highlight-color, #000)
+      ); /* CSS variable takes precedence */
       overflow: hidden;
       /* Spring animation */
       /* transition: width 0.05s ; */
-      white-space: nowrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
       transition: var(--transition-style, all) 0.05s
         cubic-bezier(0.25, 0.1, 0.25, 1.5);
     }
@@ -578,7 +589,11 @@ export class AmLyrics extends LitElement {
       const lineHeight = activeLineElement.clientHeight;
 
       const top = lineTop - containerHeight / 2 + lineHeight / 2;
-      this.lyricsContainer.scrollTo({ top, behavior: 'smooth' });
+
+      // Use requestAnimationFrame for smoother iOS performance
+      requestAnimationFrame(() => {
+        this.lyricsContainer?.scrollTo({ top, behavior: 'smooth' });
+      });
     }
   }
 
@@ -593,7 +608,11 @@ export class AmLyrics extends LitElement {
       const lineTop = target.offsetTop;
       const lineHeight = target.clientHeight;
       const top = lineTop - containerHeight / 2 + lineHeight / 2;
-      this.lyricsContainer.scrollTo({ top, behavior: 'smooth' });
+
+      // Use requestAnimationFrame for smoother iOS performance
+      requestAnimationFrame(() => {
+        this.lyricsContainer?.scrollTo({ top, behavior: 'smooth' });
+      });
     }
   }
 
@@ -725,10 +744,14 @@ export class AmLyrics extends LitElement {
     if (this.fontFamily) {
       this.style.fontFamily = this.fontFamily;
     }
+
+    // Set both old internal CSS variables (for backward compatibility)
+    // and new public CSS variables (which take precedence)
     this.style.setProperty(
       '--hover-background-color',
       this.hoverBackgroundColor,
     );
+    this.style.setProperty('--highlight-color', this.highlightColor);
 
     const renderContent = () => {
       if (this.isLoading) {
@@ -808,7 +831,7 @@ export class AmLyrics extends LitElement {
                     ? '0'
                     : '.5ch'}; --transition-style: ${isLineActive
                     ? 'all'
-                    : 'color'}; --highlight-color: ${this.highlightColor}"
+                    : 'color'}"
                   data-text="${syllable.text}${syllable.part ? ' ' : ''}"
                   >${syllable.text}</span
                 >`;
@@ -844,7 +867,7 @@ export class AmLyrics extends LitElement {
                         ? '0'
                         : '.5ch'}; --transition-style: ${isLineActive
                         ? 'all'
-                        : 'color'}; --highlight-color: ${this.highlightColor}"
+                        : 'color'}"
                       data-text="${syllable.text}"
                       >${syllable.text}</span
                     >`;
