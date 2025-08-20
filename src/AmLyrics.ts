@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.4.5';
+const VERSION = '0.4.6';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 interface Syllable {
@@ -34,6 +34,8 @@ export class AmLyrics extends LitElement {
         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
         Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
       background: transparent;
+      height: 100%;
+      overflow: hidden; /* Ensure the host doesn't show scrollbars */
     }
 
     .lyrics-container {
@@ -42,9 +44,11 @@ export class AmLyrics extends LitElement {
       background-color: transparent;
       width: 100%;
       height: 100%;
+      max-height: 100vh; /* Ensure it doesn't exceed viewport height */
       overflow-y: auto;
       scroll-behavior: smooth;
       -webkit-overflow-scrolling: touch; /* iOS smooth scrolling */
+      box-sizing: border-box; /* Include padding in height calculation */
     }
 
     .lyrics-line {
@@ -59,6 +63,12 @@ export class AmLyrics extends LitElement {
       color: #888; /* Default text color to gray */
       word-wrap: break-word;
       overflow-wrap: break-word;
+      display: flex;
+      flex-direction: column; /* Allow reordering of main and background text */
+    }
+
+    .lyrics-line > span {
+      flex-shrink: 0; /* Prevent the main text span from shrinking */
     }
 
     .lyrics-line:hover {
@@ -80,6 +90,7 @@ export class AmLyrics extends LitElement {
     .progress-text {
       position: relative;
       display: inline-block;
+      overflow: hidden; /* Hide any overflow from the pseudo-element */
     }
 
     .progress-text::before {
@@ -93,6 +104,7 @@ export class AmLyrics extends LitElement {
         var(--highlight-color, #000)
       ); /* CSS variable takes precedence */
       overflow: hidden;
+      white-space: nowrap; /* Prevent text wrapping in the pseudo-element */
       /* Spring animation */
       /* transition: width 0.05s ; */
       word-wrap: break-word;
@@ -116,7 +128,18 @@ export class AmLyrics extends LitElement {
       color: rgba(136, 136, 136, 0.8);
       font-size: 0.8em; /* a bit smaller than main line */
       font-style: normal; /* no italics */
-      margin: 4px 0 0 0; /* place just below the main line */
+      margin: 4px 0; /* default margin for positioning */
+      flex-shrink: 0; /* Prevent shrinking */
+    }
+
+    .background-text.before {
+      order: -1; /* Place before main text when background starts earlier */
+      margin: 0 0 4px 0; /* place above the main line */
+    }
+
+    .background-text.after {
+      order: 1; /* Place after main text when background starts later */
+      margin: 4px 0 0 0; /* place below the main line */
     }
     .progress-text:last-child {
       margin-right: 0 !important; /* Remove margin for the last word */
@@ -572,6 +595,24 @@ export class AmLyrics extends LitElement {
     this.dispatchEvent(event);
   }
 
+  private static getBackgroundTextPlacement(
+    line: LyricsLine,
+  ): 'before' | 'after' {
+    if (
+      !line.backgroundText ||
+      line.backgroundText.length === 0 ||
+      line.text.length === 0
+    ) {
+      return 'after'; // Default to after if no comparison is possible
+    }
+
+    // Compare the start times of the first syllables
+    const mainTextStartTime = line.text[0].timestamp;
+    const backgroundTextStartTime = line.backgroundText[0].timestamp;
+
+    return backgroundTextStartTime < mainTextStartTime ? 'before' : 'after';
+  }
+
   private scrollToActiveLine() {
     if (!this.lyricsContainer || this.activeLineIndices.length === 0) {
       return;
@@ -588,7 +629,20 @@ export class AmLyrics extends LitElement {
       const lineTop = activeLineElement.offsetTop;
       const lineHeight = activeLineElement.clientHeight;
 
-      const top = lineTop - containerHeight / 2 + lineHeight / 2;
+      // Check if the line has background text placed before the main text
+      const hasBackgroundBefore = activeLineElement.querySelector(
+        '.background-text.before',
+      );
+
+      // Calculate the offset to center the main text content, accounting for background text placement
+      let offsetAdjustment = 0;
+      if (hasBackgroundBefore) {
+        const backgroundElement = hasBackgroundBefore as HTMLElement;
+        offsetAdjustment = backgroundElement.clientHeight / 2; // Adjust to focus on main content
+      }
+
+      const top =
+        lineTop - containerHeight / 2 + lineHeight / 2 - offsetAdjustment;
 
       // Use requestAnimationFrame for smoother iOS performance
       requestAnimationFrame(() => {
@@ -607,7 +661,21 @@ export class AmLyrics extends LitElement {
       const containerHeight = this.lyricsContainer.clientHeight;
       const lineTop = target.offsetTop;
       const lineHeight = target.clientHeight;
-      const top = lineTop - containerHeight / 2 + lineHeight / 2;
+
+      // Check if the target line has background text placed before the main text
+      const hasBackgroundBefore = target.querySelector(
+        '.background-text.before',
+      );
+
+      // Calculate the offset to center the main text content, accounting for background text placement
+      let offsetAdjustment = 0;
+      if (hasBackgroundBefore) {
+        const backgroundElement = hasBackgroundBefore as HTMLElement;
+        offsetAdjustment = backgroundElement.clientHeight / 2; // Adjust to focus on main content
+      }
+
+      const top =
+        lineTop - containerHeight / 2 + lineHeight / 2 - offsetAdjustment;
 
       // Use requestAnimationFrame for smoother iOS performance
       requestAnimationFrame(() => {
@@ -774,6 +842,84 @@ export class AmLyrics extends LitElement {
               )
             : false;
 
+        const backgroundPlacement = AmLyrics.getBackgroundTextPlacement(line);
+        const shouldShowBackground =
+          line.backgroundText &&
+          line.backgroundText.length > 0 &&
+          (isLineActive || bgIsPlayingNow);
+
+        // Create background text element
+        const backgroundTextElement = shouldShowBackground
+          ? html`<span class="background-text ${backgroundPlacement}">
+              ${line.backgroundText!.map((syllable, wordIndex) => {
+                const activeBackgroundWordIndex =
+                  this.activeBackgroundWordIndices.get(lineIndex) ?? -1;
+                const isWordActive =
+                  isLineActive && wordIndex === activeBackgroundWordIndex;
+                const isWordPassed =
+                  isLineActive &&
+                  (wordIndex < activeBackgroundWordIndex ||
+                    (activeBackgroundWordIndex === -1 &&
+                      this.currentTime > syllable.endtime));
+                let progress = 0;
+                if (isWordActive) {
+                  progress = this.interpolate
+                    ? (this.backgroundWordProgress.get(lineIndex) ?? 0)
+                    : 1;
+                } else if (isWordPassed) {
+                  progress = 1;
+                }
+
+                return html`<span
+                  class="progress-text"
+                  style="--line-progress: ${progress *
+                  100}%; margin-right: ${syllable.part
+                    ? '0'
+                    : '.5ch'}; --transition-style: ${isLineActive
+                    ? 'all'
+                    : 'color'}"
+                  data-text="${syllable.text}"
+                  >${syllable.text}</span
+                >`;
+              })}
+            </span>`
+          : '';
+
+        // Create main text element
+        const mainTextElement = html`<span>
+          ${line.text.map((syllable, wordIndex) => {
+            const activeMainWordIndex =
+              this.activeMainWordIndices.get(lineIndex) ?? -1;
+            const isWordActive =
+              isLineActive && wordIndex === activeMainWordIndex;
+            const isWordPassed =
+              isLineActive &&
+              (wordIndex < activeMainWordIndex ||
+                (activeMainWordIndex === -1 &&
+                  this.currentTime > syllable.endtime));
+            let progress = 0;
+            if (isWordActive) {
+              progress = this.interpolate
+                ? (this.mainWordProgress.get(lineIndex) ?? 0)
+                : 1;
+            } else if (isWordPassed) {
+              progress = 1;
+            }
+
+            return html`<span
+              class="progress-text"
+              style="--line-progress: ${progress *
+              100}%; margin-right: ${syllable.part
+                ? '0'
+                : '.5ch'}; --transition-style: ${isLineActive
+                ? 'all'
+                : 'color'}"
+              data-text="${syllable.text}${syllable.part ? ' ' : ''}"
+              >${syllable.text}</span
+            >`;
+          })}
+        </span>`;
+
         let maybeInstrumentalBlock: unknown = null;
         if (instrumental && instrumental.insertBeforeIndex === lineIndex) {
           const remainingSeconds = Math.max(
@@ -804,76 +950,9 @@ export class AmLyrics extends LitElement {
               }
             }}
           >
-            <span>
-              ${line.text.map((syllable, wordIndex) => {
-                const activeMainWordIndex =
-                  this.activeMainWordIndices.get(lineIndex) ?? -1;
-                const isWordActive =
-                  isLineActive && wordIndex === activeMainWordIndex;
-                const isWordPassed =
-                  isLineActive &&
-                  (wordIndex < activeMainWordIndex ||
-                    (activeMainWordIndex === -1 &&
-                      this.currentTime > syllable.endtime));
-                let progress = 0;
-                if (isWordActive) {
-                  progress = this.interpolate
-                    ? (this.mainWordProgress.get(lineIndex) ?? 0)
-                    : 1;
-                } else if (isWordPassed) {
-                  progress = 1;
-                }
-
-                return html`<span
-                  class="progress-text"
-                  style="--line-progress: ${progress *
-                  100}%; margin-right: ${syllable.part
-                    ? '0'
-                    : '.5ch'}; --transition-style: ${isLineActive
-                    ? 'all'
-                    : 'color'}"
-                  data-text="${syllable.text}${syllable.part ? ' ' : ''}"
-                  >${syllable.text}</span
-                >`;
-              })}
-            </span>
-            ${line.backgroundText &&
-            line.backgroundText.length > 0 &&
-            (isLineActive || bgIsPlayingNow)
-              ? html`<span class="background-text">
-                  ${line.backgroundText.map((syllable, wordIndex) => {
-                    const activeBackgroundWordIndex =
-                      this.activeBackgroundWordIndices.get(lineIndex) ?? -1;
-                    const isWordActive =
-                      isLineActive && wordIndex === activeBackgroundWordIndex;
-                    const isWordPassed =
-                      isLineActive &&
-                      (wordIndex < activeBackgroundWordIndex ||
-                        (activeBackgroundWordIndex === -1 &&
-                          this.currentTime > syllable.endtime));
-                    let progress = 0;
-                    if (isWordActive) {
-                      progress = this.interpolate
-                        ? (this.backgroundWordProgress.get(lineIndex) ?? 0)
-                        : 1;
-                    } else if (isWordPassed) {
-                      progress = 1;
-                    }
-
-                    return html`<span
-                      class="progress-text"
-                      style="--line-progress: ${progress *
-                      100}%; margin-right: ${syllable.part
-                        ? '0'
-                        : '.5ch'}; --transition-style: ${isLineActive
-                        ? 'all'
-                        : 'color'}"
-                      data-text="${syllable.text}"
-                      >${syllable.text}</span
-                    >`;
-                  })}
-                </span>`
-              : ''}
+            ${backgroundPlacement === 'before' ? backgroundTextElement : ''}
+            ${mainTextElement}
+            ${backgroundPlacement === 'after' ? backgroundTextElement : ''}
           </div>
         `;
       });
