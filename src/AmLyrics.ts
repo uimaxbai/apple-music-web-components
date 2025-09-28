@@ -156,6 +156,7 @@ export class AmLyrics extends LitElement {
       -webkit-text-fill-color: transparent;
       /* Fallback for browsers that don't support background-clip: text */
       color: #888;
+      white-space: pre-wrap;
       /* Performance optimizations */
       transform: translate3d(0, 0, 0);
       will-change: background-size;
@@ -924,6 +925,18 @@ export class AmLyrics extends LitElement {
     return /[\s\-–—~'’]$/.test(text);
   }
 
+  private static shouldApplySyllableMargin(syllable: Syllable | undefined) {
+    if (!syllable || syllable.part) {
+      return false;
+    }
+
+    if (typeof syllable.text !== 'string' || syllable.text.length === 0) {
+      return false;
+    }
+
+    return !AmLyrics.endsWithNoSpaceMarker(syllable.text);
+  }
+
   private static toMilliseconds(value: unknown, fallback = 0): number {
     const num = Number(value);
     if (!Number.isFinite(num) || Number.isNaN(num)) {
@@ -1557,9 +1570,11 @@ export class AmLyrics extends LitElement {
                 return html`<span
                   class="progress-text"
                   style="--line-progress: ${progress *
-                  100}%; margin-right: ${syllable.part
-                    ? '0'
-                    : '.5ch'}; --transition-style: ${isLineActive
+                  100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
+                    syllable,
+                  )
+                    ? '.5ch'
+                    : '0'}; --transition-style: ${isLineActive
                     ? 'all'
                     : 'color'}"
                   >${syllable.text}</span
@@ -1592,11 +1607,11 @@ export class AmLyrics extends LitElement {
             return html`<span
               class="progress-text"
               style="--line-progress: ${progress *
-              100}%; margin-right: ${syllable.part
-                ? '0'
-                : '.5ch'}; --transition-style: ${isLineActive
-                ? 'all'
-                : 'color'}"
+              100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
+                syllable,
+              )
+                ? '.5ch'
+                : '0'}; --transition-style: ${isLineActive ? 'all' : 'color'}"
               >${syllable.text}</span
             >`;
           })}
