@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 const BASE_API_URL = 'https://paxsenix.alwaysdata.net/';
 const KPOE_SERVERS = [
