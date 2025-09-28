@@ -17,15 +17,21 @@
 </head>
 <body>
   <div>
-    <input id="search-input" type="text" placeholder="Search for a song" />
-    <button id="search-button">Search</button>
+    <input id="title-input" type="text" placeholder="Song title" />
+    <input id="artist-input" type="text" placeholder="Artist" />
+    <input id="query-input" type="text" placeholder="Search query (e.g. Title - Artist)" />
+    <input id="duration-input" type="number" placeholder="Duration (ms)" />
+    <button id="load-button">Load lyrics</button>
   </div>
 
   <am-lyrics
-    query="Uptown Funk"
+    song-title="Uptown Funk"
+    song-artist="Mark Ronson"
+    song-album="Uptown Special"
+    song-duration="269000"
+    query="Uptown Funk Mark Ronson"
     music-id=""
     isrc=""
-    duration=""
     highlight-color="#f00"
     hover-background-color="#e0e0e0"
     hide-source-footer="true"
@@ -35,10 +41,14 @@
   ></am-lyrics>
   <!--
   <am-lyrics
-    query="Uptown Funk"               // Search Apple Music for a song
+    song-title="Uptown Funk"          // Preferred: provide title for LyricsPlus API
+    song-artist="Mark Ronson"         // Preferred: provide artist for LyricsPlus API
+    song-album="Uptown Special"       // Optional album metadata sent to LyricsPlus
+    song-duration="269000"            // Optional song duration (ms) sent to LyricsPlus
+    query="Uptown Funk Mark Ronson"   // Fallback search string for Apple Music backup API
     music-id=""                       // Use this if you have a specific song ID from Apple Music (almost never)
     isrc=""                           // To be used WITH a query, just to double check if it is correct
-    duration=""                       // Duration of your timer (the component takes it in and syncs to the words. See JS below)
+    duration=""                       // Playback timer duration (component sync). See JS below
     highlight-color="#000"            // Color of the highlighted words
     hover-background-color="#f0f0f0"  // Color of the line when you hover over it
     hide-source-footer="false"        // Controls whether the footer at the bottom is a larger one or a more compact GitHub link.
@@ -90,14 +100,44 @@
       animate();
     }
 
-    function handleSearch() {
-      const searchInput = document.querySelector('#search-input');
+    function handleLoadMetadata() {
+      const titleInput = document.querySelector('#title-input');
+      const artistInput = document.querySelector('#artist-input');
+      const durationInput = document.querySelector('#duration-input');
+      const queryInput = document.querySelector('#query-input');
       const amLyrics = document.querySelector('am-lyrics');
-      if (searchInput && amLyrics) {
-        amLyrics.query = searchInput.value;
-        amLyrics.isrc = '';
-        amLyrics.musicId = '';
+
+      if (!amLyrics) return;
+
+      const title = titleInput?.value.trim() ?? '';
+      const artist = artistInput?.value.trim() ?? '';
+      const queryText = queryInput?.value.trim() ?? '';
+      const durationText = durationInput?.value.trim() ?? '';
+      const durationMs = durationText ? Number(durationText) : NaN;
+
+      if (titleInput) {
+        amLyrics.songTitle = title;
       }
+
+      if (artistInput) {
+        amLyrics.songArtist = artist;
+      }
+
+      if (!Number.isNaN(durationMs) && durationMs > 0) {
+        amLyrics.songDurationMs = durationMs;
+      } else if (durationText === '') {
+        amLyrics.songDurationMs = undefined;
+      }
+
+      const fallbackQuery = queryText || [title, artist].filter(Boolean).join(' ');
+      if (fallbackQuery) {
+        amLyrics.query = fallbackQuery;
+      } else {
+        amLyrics.query = '';
+      }
+
+      amLyrics.isrc = '';
+      amLyrics.musicId = '';
     }
 
     function resetPlayback() {
@@ -112,16 +152,36 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       const amLyrics = document.querySelector('am-lyrics');
-      const searchButton = document.querySelector('#search-button');
+      const loadButton = document.querySelector('#load-button');
       const startButton = document.querySelector('#start-button');
       const resetButton = document.querySelector('#reset-button');
+      const titleInput = document.querySelector('#title-input');
+      const artistInput = document.querySelector('#artist-input');
+      const queryInput = document.querySelector('#query-input');
+      const durationInput = document.querySelector('#duration-input');
 
       if (amLyrics) {
         amLyrics.addEventListener('line-click', handleLineClick);
       }
 
-      if (searchButton) {
-        searchButton.addEventListener('click', handleSearch);
+      if (titleInput && amLyrics?.songTitle) {
+        titleInput.value = amLyrics.songTitle;
+      }
+
+      if (artistInput && amLyrics?.songArtist) {
+        artistInput.value = amLyrics.songArtist;
+      }
+
+      if (queryInput && amLyrics?.query) {
+        queryInput.value = amLyrics.query;
+      }
+
+      if (durationInput && typeof amLyrics?.songDurationMs === 'number') {
+        durationInput.value = String(amLyrics.songDurationMs);
+      }
+
+      if (loadButton) {
+        loadButton.addEventListener('click', handleLoadMetadata);
       }
 
       if (startButton) {

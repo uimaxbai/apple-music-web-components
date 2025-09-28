@@ -18,9 +18,11 @@ Or, just use the CDN.
 </script>
 
 <am-lyrics
-  query="Uptown Funk"
-  music-id=""
-  isrc=""
+  song-title="Uptown Funk"
+  song-artist="Mark Ronson"
+  song-album="Uptown Special"
+  song-duration="269000"
+  query="Uptown Funk Mark Ronson"
   current-time="0"
   duration=""
   highlight-color="#f00"
@@ -36,11 +38,15 @@ Or, just use the CDN.
 
 | Property/Attribute | Type | Default | Description |
 |-------------------|------|---------|-------------|
-| `query` | `string` | `undefined` | Search query for Apple Music song |
-| `music-id` | `string` | `undefined` | Specific Apple Music song ID (rarely used) |
+| `query` | `string` | `undefined` | Search phrase that resolves metadata via LyricsPlus catalog (falls back to Apple Music search) |
+| `music-id` | `string` | `undefined` | Specific Apple Music song ID (served through the backup Apple endpoint) |
 | `isrc` | `string` | `undefined` | ISRC code to verify correct song match |
+| `song-title` | `string` | `undefined` | Preferred title for LyricsPlus (primary) provider |
+| `song-artist` | `string` | `undefined` | Preferred artist name for LyricsPlus provider |
+| `song-album` | `string` | `undefined` | Optional album name passed to LyricsPlus provider |
+| `song-duration` | `number` | `undefined` | Optional song duration in milliseconds sent to LyricsPlus |
 | `current-time` | `number` | `0` | Current playback time in milliseconds |
-| `duration` | `number` | `undefined` | Song duration in milliseconds. **Set to `-1` to reset/stop playback** |
+| `duration` | `number` | `undefined` | Playback timer duration in milliseconds. **Set to `-1` to reset/stop playback** |
 | `highlight-color` | `string` | `"#000"` | Color for highlighted/active lyrics |
 | `hover-background-color` | `string` | `"#f0f0f0"` | Background color on line hover |
 | `hide-source-footer` | `boolean` | `false` | Hide/show the source attribution footer |
@@ -67,6 +73,15 @@ am-lyrics {
 
 **Note**: The CSS variables take precedent over the set properties above.
 
+
+## Lyrics providers
+
+The component now favours the LyricsPlus (KPoe) API that powers [YouLyPlus](https://github.com/ibratabian17/YouLyPlus).
+
+1. Provide `song-title` and `song-artist` (plus optional `song-album`/`song-duration`) to request word-synced lyrics from LyricsPlus. A standalone `query` such as `"Bad Habit - Steve Lacy"` also works—the component looks up the metadata through LyricsPlus' `/v1/songlist/search` endpoint.
+2. If LyricsPlus cannot serve lyrics or metadata is missing, the component automatically falls back to the legacy Apple Music endpoint using the best available identifiers (`query`, `music-id`, `isrc`). Requests that rely solely on `music-id` are handled exclusively by this backup service because LyricsPlus does not support Apple IDs.
+
+The footer shows the active provider (e.g. “LyricsPlus (KPoe)” or “Apple Music”) so you always know which service responded. Supplying both metadata *and* a `query` gives the best results because the query remains available for the Apple Music backup.
 
 
 ## Events
@@ -151,7 +166,9 @@ export default function App() {
     <div>
       <audio ref={audioRef} src="/uptown_funk.flac" controls />
         <AmLyrics
-          query="Uptown Funk"
+          songTitle="Uptown Funk"
+          songArtist="Mark Ronson"
+          query="Uptown Funk Mark Ronson"
           currentTime={currentTime}
           onLineClick={handleLineClick}
           autoScroll
@@ -218,7 +235,15 @@ The timer needs to be defined by yourself. For example:
     const searchInput = document.querySelector('#search-input');
     const amLyrics = document.querySelector('am-lyrics');
     if (searchInput && amLyrics) {
-      amLyrics.query = searchInput.value;
+      // Expect "Title - Artist" in the search field for optimal LyricsPlus results
+      const userInput = searchInput.value.trim();
+      const [titlePart = '', artistPart = ''] = userInput
+        .split(' - ')
+        .map(part => part.trim());
+
+      amLyrics.songTitle = titlePart || userInput;
+      amLyrics.songArtist = artistPart;
+      amLyrics.query = userInput;
       amLyrics.isrc = '';
       amLyrics.musicId = '';
     }
@@ -250,7 +275,11 @@ You can synchronize the lyrics with an HTML `<audio>` element.
 
 ```html
 <audio id="audio-player" src="path/to/your/song.mp3" controls></audio>
-<am-lyrics query="Uptown Funk"></am-lyrics>
+<am-lyrics
+  song-title="Uptown Funk"
+  song-artist="Mark Ronson"
+  query="Uptown Funk Mark Ronson"
+></am-lyrics>
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {

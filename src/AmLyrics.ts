@@ -1,8 +1,17 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
+const BASE_API_URL = 'https://paxsenix.alwaysdata.net/';
+const KPOE_SERVERS = [
+  'https://lyricsplus.prjktla.workers.dev',
+  'https://lyrics-plus-backend.vercel.app',
+  'https://lyricsplus.onrender.com',
+  'https://lyricsplus.prjktla.online',
+];
+const DEFAULT_KPOE_SOURCE_ORDER =
+  'apple,lyricsplus,musixmatch,spotify,musixmatch-word';
 
 interface Syllable {
   text: string;
@@ -24,6 +33,43 @@ interface LyricsResponse {
   info: string;
   type: string;
   content: LyricsLine[];
+}
+
+interface SongMetadata {
+  title: string;
+  artist: string;
+  album?: string;
+  durationMs?: number;
+}
+
+interface SongCatalogResult {
+  title?: string;
+  artist?: string;
+  album?: string;
+  durationMs?: number;
+  id?: {
+    appleMusic?: string;
+    [key: string]: unknown;
+  };
+  isrc?: string;
+}
+
+interface ParsedQueryMetadata {
+  title?: string;
+  artist?: string;
+  album?: string;
+}
+
+interface YouLyPlusLyricsResult {
+  lines: LyricsLine[];
+  source?: string;
+}
+
+interface ResolvedMetadata {
+  metadata?: SongMetadata;
+  appleId?: string;
+  appleSong?: any;
+  catalogIsrc?: string;
 }
 
 export class AmLyrics extends LitElement {
@@ -214,6 +260,18 @@ export class AmLyrics extends LitElement {
   @property({ type: String })
   isrc?: string;
 
+  @property({ type: String, attribute: 'song-title' })
+  songTitle?: string;
+
+  @property({ type: String, attribute: 'song-artist' })
+  songArtist?: string;
+
+  @property({ type: String, attribute: 'song-album' })
+  songAlbum?: string;
+
+  @property({ type: Number, attribute: 'song-duration' })
+  songDurationMs?: number;
+
   @property({ type: String, attribute: 'highlight-color' })
   highlightColor = '#000';
 
@@ -259,6 +317,9 @@ export class AmLyrics extends LitElement {
   @state()
   private backgroundWordProgress: Map<number, number> = new Map();
 
+  @state()
+  private lyricsSource: string | null = null;
+
   private animationFrameId?: number;
 
   private mainWordAnimations: Map<
@@ -301,59 +362,582 @@ export class AmLyrics extends LitElement {
   private async fetchLyrics() {
     this.isLoading = true;
     this.lyrics = undefined;
+    this.lyricsSource = null;
     try {
-      const baseURL = 'https://paxsenix.alwaysdata.net/';
-      let appleID = this.musicId;
+      const resolvedMetadata = await this.resolveSongMetadata();
 
-      if (!appleID && this.query) {
-        const search = encodeURIComponent(this.query);
-        try {
-          const searchResponse = await fetch(
-            `${baseURL}searchAppleMusic.php?q=${search}`,
-          );
-          if (!searchResponse.ok) {
-            return;
-          }
-          const decoded = await searchResponse.json();
+      const isMusicIdOnlyRequest =
+        Boolean(this.musicId) &&
+        !this.songTitle &&
+        !this.songArtist &&
+        !this.query;
 
-          if (this.isrc) {
-            const song = decoded.find((s: any) => s.isrc === this.isrc);
-            if (song) {
-              appleID = song.id;
-            }
-          } else if (decoded.length > 0) {
-            appleID = decoded[0].id;
-          }
-        } catch (e) {
+      if (resolvedMetadata?.metadata && !isMusicIdOnlyRequest) {
+        const youLyResult = await AmLyrics.fetchLyricsFromYouLyPlus(
+          resolvedMetadata.metadata,
+        );
+
+        if (youLyResult && youLyResult.lines.length > 0) {
+          this.lyrics = youLyResult.lines;
+          this.lyricsSource = youLyResult.source ?? 'LyricsPlus (KPoe)';
+          this.onLyricsLoaded();
           return;
         }
       }
 
-      if (appleID) {
-        try {
-          const lyricsResponse = await fetch(
-            `${baseURL}getAppleMusicLyrics.php?id=${appleID}`,
-          );
-          if (!lyricsResponse.ok) {
-            return;
-          }
-          const lyricsData: LyricsResponse = await lyricsResponse.json();
-          this.lyrics = lyricsData.content;
-          if (this.lyricsContainer) {
-            this.lyricsContainer.scrollTop = 0;
-          }
-        } catch (e) {
-          //
+      let fallbackAppleId = resolvedMetadata?.appleId ?? this.musicId;
+      let fallbackAppleSong = resolvedMetadata?.appleSong;
+
+      if (!fallbackAppleId && this.query) {
+        fallbackAppleSong =
+          fallbackAppleSong ??
+          (await this.searchAppleMusic(
+            this.query,
+            resolvedMetadata?.catalogIsrc ?? this.isrc,
+          ));
+
+        if (fallbackAppleSong) {
+          fallbackAppleId =
+            fallbackAppleSong.id ?? fallbackAppleSong.appleId ?? undefined;
         }
       }
+
+      const appleResult = await this.fetchLyricsFromApple(fallbackAppleId);
+
+      if (appleResult && appleResult.lines.length > 0) {
+        const spacedLines = AmLyrics.ensureAppleWordSpacing(appleResult.lines);
+        this.lyrics = spacedLines;
+        this.lyricsSource = appleResult.source ?? 'Apple Music';
+        this.onLyricsLoaded();
+        return;
+      }
+
+      this.lyrics = undefined;
+      this.lyricsSource = null;
     } finally {
       this.isLoading = false;
     }
   }
 
-  firstUpdated() {
-    this.fetchLyrics();
+  private onLyricsLoaded() {
+    this.activeLineIndices = [];
+    this.activeMainWordIndices.clear();
+    this.activeBackgroundWordIndices.clear();
+    this.mainWordProgress.clear();
+    this.backgroundWordProgress.clear();
+    this.mainWordAnimations.clear();
+    this.backgroundWordAnimations.clear();
 
+    if (this.lyricsContainer) {
+      this.isProgrammaticScroll = true;
+      this.lyricsContainer.scrollTop = 0;
+      window.setTimeout(() => {
+        this.isProgrammaticScroll = false;
+      }, 100);
+    }
+  }
+
+  private async resolveSongMetadata(): Promise<ResolvedMetadata> {
+    const metadata: SongMetadata = {
+      title: this.songTitle?.trim() ?? '',
+      artist: this.songArtist?.trim() ?? '',
+      album: this.songAlbum?.trim() || undefined,
+      durationMs: undefined,
+    };
+
+    if (typeof this.songDurationMs === 'number' && this.songDurationMs > 0) {
+      metadata.durationMs = this.songDurationMs;
+    } else if (typeof this.duration === 'number' && this.duration > 0) {
+      metadata.durationMs = this.duration;
+    }
+
+    let appleSong: any = null;
+    let appleId = this.musicId;
+    let catalogIsrc: string | undefined;
+
+    if (
+      this.query &&
+      (!metadata.title || !metadata.artist || !metadata.album)
+    ) {
+      const parsed = AmLyrics.parseQueryMetadata(this.query);
+      if (parsed) {
+        if (!metadata.title && parsed.title) {
+          metadata.title = parsed.title;
+        }
+        if (!metadata.artist && parsed.artist) {
+          metadata.artist = parsed.artist;
+        }
+        if (!metadata.album && parsed.album) {
+          metadata.album = parsed.album;
+        }
+      }
+    }
+
+    let catalogResult: SongCatalogResult | null = null;
+
+    if (this.query) {
+      catalogResult = await AmLyrics.searchLyricsPlusCatalog(this.query);
+
+      if (catalogResult) {
+        if (!metadata.title && catalogResult.title) {
+          metadata.title = catalogResult.title;
+        }
+        if (!metadata.artist && catalogResult.artist) {
+          metadata.artist = catalogResult.artist;
+        }
+        if (!metadata.album && catalogResult.album) {
+          metadata.album = catalogResult.album;
+        }
+        if (
+          metadata.durationMs == null &&
+          typeof catalogResult.durationMs === 'number' &&
+          catalogResult.durationMs > 0
+        ) {
+          metadata.durationMs = catalogResult.durationMs;
+        }
+
+        if (!appleId && catalogResult.id?.appleMusic) {
+          appleId = catalogResult.id.appleMusic;
+        }
+
+        if (!catalogIsrc && catalogResult.isrc) {
+          catalogIsrc = catalogResult.isrc;
+        }
+      }
+    }
+
+    if (this.query) {
+      const needsMetadata = !metadata.title || !metadata.artist;
+      const needsAppleId = !appleId;
+
+      if (needsMetadata || needsAppleId) {
+        appleSong = await this.searchAppleMusic(
+          this.query,
+          catalogIsrc ?? this.isrc,
+        );
+
+        if (appleSong) {
+          if (needsAppleId && !appleId) {
+            appleId = appleSong.id ?? appleSong.appleId ?? undefined;
+          }
+
+          if (!metadata.title) {
+            const appleTitle =
+              appleSong?.attributes?.name || appleSong?.name || '';
+            if (appleTitle) {
+              metadata.title = appleTitle;
+            }
+          }
+          if (!metadata.artist) {
+            const appleArtist =
+              appleSong?.attributes?.artistName ||
+              appleSong?.artistName ||
+              appleSong?.artist ||
+              '';
+            if (appleArtist) {
+              metadata.artist = appleArtist;
+            }
+          }
+          if (!metadata.album) {
+            const appleAlbum =
+              appleSong?.attributes?.albumName ||
+              appleSong?.albumName ||
+              appleSong?.album;
+            if (appleAlbum) {
+              metadata.album = appleAlbum;
+            }
+          }
+
+          const durationCandidate =
+            appleSong?.attributes?.durationInMillis ??
+            appleSong?.durationInMillis ??
+            appleSong?.duration ??
+            undefined;
+
+          if (
+            metadata.durationMs == null &&
+            typeof durationCandidate === 'number' &&
+            durationCandidate > 0
+          ) {
+            metadata.durationMs = durationCandidate;
+          }
+        }
+      }
+    }
+
+    const trimmedTitle = metadata.title?.trim() ?? '';
+    const trimmedArtist = metadata.artist?.trim() ?? '';
+    const trimmedAlbum = metadata.album?.trim();
+    const sanitizedDuration =
+      typeof metadata.durationMs === 'number' &&
+      Number.isFinite(metadata.durationMs) &&
+      metadata.durationMs > 0
+        ? Math.round(metadata.durationMs)
+        : undefined;
+
+    const finalMetadata =
+      trimmedTitle && trimmedArtist
+        ? {
+            title: trimmedTitle,
+            artist: trimmedArtist,
+            album: trimmedAlbum || undefined,
+            durationMs: sanitizedDuration,
+          }
+        : undefined;
+
+    return {
+      metadata: finalMetadata,
+      appleId,
+      appleSong,
+      catalogIsrc,
+    };
+  }
+
+  private async searchAppleMusic(
+    searchTerm: string,
+    isrcMatch?: string,
+  ): Promise<any | null> {
+    const trimmedQuery = searchTerm?.trim();
+    if (!trimmedQuery) return null;
+
+    try {
+      const response = await fetch(
+        `${BASE_API_URL}searchAppleMusic.php?q=${encodeURIComponent(trimmedQuery)}`,
+      );
+      if (!response.ok) {
+        return null;
+      }
+
+      const decoded = await response.json();
+      if (!Array.isArray(decoded) || decoded.length === 0) {
+        return null;
+      }
+
+      const targetIsrc = (isrcMatch ?? this.isrc)?.trim();
+      if (targetIsrc) {
+        const match = decoded.find((item: any) => {
+          const candidateIsrc =
+            item?.isrc || item?.attributes?.isrc || item?.attributes?.isrcValue;
+          return (
+            typeof candidateIsrc === 'string' && candidateIsrc === targetIsrc
+          );
+        });
+        if (match) {
+          return match;
+        }
+      }
+
+      return decoded[0];
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private static parseQueryMetadata(
+    rawQuery: string,
+  ): ParsedQueryMetadata | null {
+    const trimmed = rawQuery?.trim();
+    if (!trimmed) return null;
+
+    const result: ParsedQueryMetadata = {};
+
+    const hyphenSplit = trimmed.split(/\s[-–—]\s/);
+    if (hyphenSplit.length >= 2) {
+      const [rawTitle, ...rest] = hyphenSplit;
+      const rawArtist = rest.join(' - ');
+      const titleCandidate = rawTitle.trim();
+      const artistCandidate = rawArtist.trim();
+      if (titleCandidate && artistCandidate) {
+        result.title = titleCandidate;
+        result.artist = artistCandidate;
+        return result;
+      }
+    }
+
+    const bySplit = trimmed.split(/\s+[bB]y\s+/);
+    if (bySplit.length === 2) {
+      const [maybeTitle, maybeArtist] = bySplit.map(part => part.trim());
+      if (maybeTitle && maybeArtist) {
+        result.title = maybeTitle;
+        result.artist = maybeArtist;
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  private static async searchLyricsPlusCatalog(
+    searchTerm: string,
+  ): Promise<SongCatalogResult | null> {
+    const trimmedQuery = searchTerm?.trim();
+    if (!trimmedQuery) return null;
+
+    for (const base of KPOE_SERVERS) {
+      const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const url = `${normalizedBase}/v1/songlist/search?q=${encodeURIComponent(
+        trimmedQuery,
+      )}`;
+
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await fetch(url);
+        if (response.ok) {
+          // eslint-disable-next-line no-await-in-loop
+          const payload = await response.json();
+          let results: SongCatalogResult[] = [];
+
+          const typedPayload = payload as {
+            results?: SongCatalogResult[];
+          } | null;
+
+          if (Array.isArray(typedPayload?.results)) {
+            results = typedPayload.results as SongCatalogResult[];
+          } else if (Array.isArray(payload)) {
+            results = payload as SongCatalogResult[];
+          }
+
+          if (results.length > 0) {
+            const primary = results.find(
+              (item: SongCatalogResult) => item?.id && item.id.appleMusic,
+            );
+            return (primary ?? results[0]) as SongCatalogResult;
+          }
+        }
+      } catch (error) {
+        // Ignore and try next server
+      }
+    }
+
+    return null;
+  }
+
+  private static async fetchLyricsFromYouLyPlus(
+    metadata: SongMetadata,
+  ): Promise<YouLyPlusLyricsResult | null> {
+    const title = metadata.title?.trim();
+    const artist = metadata.artist?.trim();
+
+    if (!title || !artist) {
+      return null;
+    }
+
+    const params = new URLSearchParams({ title, artist });
+
+    if (metadata.album) {
+      params.append('album', metadata.album);
+    }
+
+    if (metadata.durationMs && metadata.durationMs > 0) {
+      params.append(
+        'duration',
+        Math.round(metadata.durationMs / 1000).toString(),
+      );
+    }
+
+    params.append('source', DEFAULT_KPOE_SOURCE_ORDER);
+
+    for (const base of KPOE_SERVERS) {
+      const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      const url = `${normalizedBase}/v2/lyrics/get?${params.toString()}`;
+
+      let payload: any = null;
+
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const response = await fetch(url);
+        if (response.ok) {
+          // eslint-disable-next-line no-await-in-loop
+          payload = await response.json();
+        }
+      } catch (error) {
+        payload = null;
+      }
+
+      if (payload) {
+        const lines = AmLyrics.convertKPoeLyrics(payload);
+        if (lines && lines.length > 0) {
+          const sourceLabel =
+            payload?.metadata?.source ||
+            payload?.metadata?.provider ||
+            'LyricsPlus (KPoe)';
+          return { lines, source: sourceLabel };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private async fetchLyricsFromApple(
+    appleId?: string | null,
+  ): Promise<YouLyPlusLyricsResult | null> {
+    const resolvedId = appleId ?? this.musicId;
+    if (!resolvedId) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(
+        `${BASE_API_URL}getAppleMusicLyrics.php?id=${encodeURIComponent(resolvedId)}`,
+      );
+      if (!response.ok) {
+        return null;
+      }
+
+      const lyricsData: LyricsResponse = await response.json();
+      if (!lyricsData?.content || !Array.isArray(lyricsData.content)) {
+        return null;
+      }
+
+      return {
+        lines: lyricsData.content,
+        source: lyricsData.info || 'Apple Music',
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private static convertKPoeLyrics(payload: any): LyricsLine[] | null {
+    if (!payload) {
+      return null;
+    }
+
+    let rawLyrics: any[] | null = null;
+    if (Array.isArray(payload?.lyrics)) {
+      rawLyrics = payload.lyrics;
+    } else if (Array.isArray(payload?.data?.lyrics)) {
+      rawLyrics = payload.data.lyrics;
+    } else if (Array.isArray(payload?.data)) {
+      rawLyrics = payload.data;
+    }
+
+    if (!rawLyrics || rawLyrics.length === 0) {
+      return null;
+    }
+
+    const sanitizedEntries = rawLyrics.filter((item: any) => Boolean(item));
+    const lines: LyricsLine[] = [];
+
+    for (const entry of sanitizedEntries) {
+      const lineText = typeof entry.text === 'string' ? entry.text : '';
+      const lineStart = AmLyrics.toMilliseconds(entry.time);
+      const lineDuration = AmLyrics.toMilliseconds(entry.duration);
+      const explicitEnd = AmLyrics.toMilliseconds(entry.endTime);
+      const lineEnd = explicitEnd || lineStart + (lineDuration || 0);
+
+      const syllabus = Array.isArray(entry.syllabus)
+        ? entry.syllabus.filter((s: any) => Boolean(s))
+        : [];
+      const mainSyllables: Syllable[] = [];
+      const backgroundSyllables: Syllable[] = [];
+
+      if (syllabus.length > 0) {
+        for (const syl of syllabus) {
+          const sylStart = AmLyrics.toMilliseconds(syl.time, lineStart);
+          const sylDuration = AmLyrics.toMilliseconds(syl.duration);
+          const sylEnd = sylDuration > 0 ? sylStart + sylDuration : lineEnd;
+          const syllable: Syllable = {
+            text: typeof syl.text === 'string' ? syl.text : '',
+            part: Boolean(syl.part),
+            timestamp: sylStart,
+            endtime: sylEnd,
+          };
+
+          if (syl.isBackground) {
+            backgroundSyllables.push(syllable);
+          } else {
+            mainSyllables.push(syllable);
+          }
+        }
+      }
+
+      if (mainSyllables.length === 0 && lineText) {
+        mainSyllables.push({
+          text: lineText,
+          part: false,
+          timestamp: lineStart,
+          endtime: lineEnd || lineStart,
+        });
+      }
+
+      const lineResult: LyricsLine = {
+        text: mainSyllables,
+        background: backgroundSyllables.length > 0,
+        backgroundText: backgroundSyllables,
+        oppositeTurn: Array.isArray(entry.element)
+          ? entry.element.includes('opposite') ||
+            entry.element.includes('right')
+          : false,
+        timestamp: lineStart,
+        endtime: lineEnd || lineStart,
+      };
+
+      lines.push(lineResult);
+    }
+
+    return lines;
+  }
+
+  private static ensureAppleWordSpacing(lines: LyricsLine[]): LyricsLine[] {
+    return lines.map(line => ({
+      ...line,
+      text: AmLyrics.applySpacingToSyllables(line.text),
+      backgroundText: line.backgroundText
+        ? AmLyrics.applySpacingToSyllables(line.backgroundText)
+        : line.backgroundText,
+    }));
+  }
+
+  private static applySpacingToSyllables(syllables: Syllable[]): Syllable[] {
+    if (!Array.isArray(syllables)) {
+      return syllables;
+    }
+
+    return syllables.map((syllable, index) => {
+      if (!syllable || typeof syllable.text !== 'string') {
+        return syllable;
+      }
+
+      const next = syllables[index + 1];
+      const shouldAppendSpace =
+        Boolean(next) &&
+        !next?.part &&
+        !syllable.text.endsWith(' ') &&
+        !AmLyrics.endsWithNoSpaceMarker(syllable.text) &&
+        !AmLyrics.startsWithPunctuation(next?.text ?? '');
+
+      if (shouldAppendSpace) {
+        return { ...syllable, text: `${syllable.text} ` };
+      }
+
+      return syllable;
+    });
+  }
+
+  private static startsWithPunctuation(text: string): boolean {
+    return /^[\s.,!?;:)\]}`“”"'’`-]/.test(text);
+  }
+
+  private static endsWithNoSpaceMarker(text: string): boolean {
+    return /[\s\-–—~'’]$/.test(text);
+  }
+
+  private static toMilliseconds(value: unknown, fallback = 0): number {
+    const num = Number(value);
+    if (!Number.isFinite(num) || Number.isNaN(num)) {
+      return fallback;
+    }
+
+    if (!Number.isInteger(num)) {
+      return Math.round(num * 1000);
+    }
+
+    return Math.max(0, Math.round(num));
+  }
+
+  firstUpdated() {
     // Set up scroll event listener for user scroll detection
     if (this.lyricsContainer) {
       this.lyricsContainer.addEventListener(
@@ -400,7 +984,11 @@ export class AmLyrics extends LitElement {
     if (
       (changedProperties.has('query') ||
         changedProperties.has('musicId') ||
-        changedProperties.has('isrc')) &&
+        changedProperties.has('isrc') ||
+        changedProperties.has('songTitle') ||
+        changedProperties.has('songArtist') ||
+        changedProperties.has('songAlbum') ||
+        changedProperties.has('songDurationMs')) &&
       !changedProperties.has('currentTime')
     ) {
       this.fetchLyrics();
@@ -915,6 +1503,8 @@ export class AmLyrics extends LitElement {
     );
     this.style.setProperty('--highlight-color', this.highlightColor);
 
+    const sourceLabel = this.lyricsSource ?? 'Unavailable';
+
     const renderContent = () => {
       if (this.isLoading) {
         return html`<div class="loading-indicator">Loading...</div>`;
@@ -1057,7 +1647,9 @@ export class AmLyrics extends LitElement {
           ? html` <footer
               class="lyrics-footer ${this.hideSourceFooter ? 'compact' : ''}"
             >
-              ${!this.hideSourceFooter ? html`<p>Source: Apple Music</p>` : ''}
+              ${!this.hideSourceFooter
+                ? html`<p>Source: ${sourceLabel}</p>`
+                : ''}
               v${VERSION} •
               <a
                 href="https://github.com/uimaxbai/apple-music-web-components"
