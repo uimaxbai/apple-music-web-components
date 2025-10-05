@@ -44,6 +44,14 @@
         "tslib": "^2.8.1",
         "typescript": "^5.5.3",
       },
+      "peerDependencies": {
+        "@lit/react": "^1.0.0",
+        "react": ">=17.0.0",
+      },
+      "optionalPeers": [
+        "@lit/react",
+        "react",
+      ],
     },
   },
   "packages": {

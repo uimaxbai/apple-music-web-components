@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.5.2';
+const VERSION = '0.5.3';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 const BASE_API_URL = 'https://paxsenix.alwaysdata.net/';
 const KPOE_SERVERS = [
@@ -321,6 +321,9 @@ export class AmLyrics extends LitElement {
   @state()
   private lyricsSource: string | null = null;
 
+  @state()
+  private shouldNormalizeSpacing = false;
+
   private animationFrameId?: number;
 
   private mainWordAnimations: Map<
@@ -364,6 +367,7 @@ export class AmLyrics extends LitElement {
     this.isLoading = true;
     this.lyrics = undefined;
     this.lyricsSource = null;
+    this.shouldNormalizeSpacing = false;
     try {
       const resolvedMetadata = await this.resolveSongMetadata();
 
@@ -381,6 +385,7 @@ export class AmLyrics extends LitElement {
         if (youLyResult && youLyResult.lines.length > 0) {
           this.lyrics = youLyResult.lines;
           this.lyricsSource = youLyResult.source ?? 'LyricsPlus (KPoe)';
+          this.shouldNormalizeSpacing = false;
           this.onLyricsLoaded();
           return;
         }
@@ -409,6 +414,7 @@ export class AmLyrics extends LitElement {
         const spacedLines = AmLyrics.ensureAppleWordSpacing(appleResult.lines);
         this.lyrics = spacedLines;
         this.lyricsSource = appleResult.source ?? 'Apple Music';
+        this.shouldNormalizeSpacing = true;
         this.onLyricsLoaded();
         return;
       }
@@ -1570,9 +1576,8 @@ export class AmLyrics extends LitElement {
                 return html`<span
                   class="progress-text"
                   style="--line-progress: ${progress *
-                  100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
-                    syllable,
-                  )
+                  100}%; margin-right: ${this.shouldNormalizeSpacing &&
+                  AmLyrics.shouldApplySyllableMargin(syllable)
                     ? '.5ch'
                     : '0'}; --transition-style: ${isLineActive
                     ? 'all'
@@ -1606,10 +1611,9 @@ export class AmLyrics extends LitElement {
 
             return html`<span
               class="progress-text"
-              style="--line-progress: ${progress *
-              100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
-                syllable,
-              )
+              style="--line-progress: ${progress * 100}%; margin-right: ${this
+                .shouldNormalizeSpacing &&
+              AmLyrics.shouldApplySyllableMargin(syllable)
                 ? '.5ch'
                 : '0'}; --transition-style: ${isLineActive ? 'all' : 'color'}"
               >${syllable.text}</span
