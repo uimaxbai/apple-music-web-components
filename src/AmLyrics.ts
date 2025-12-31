@@ -1793,7 +1793,7 @@ export class AmLyrics extends LitElement {
                 <span class="version-info">
                   v${VERSION} •
                   
-                    <ahref="https://github.com/uimaxbai/apple-music-web-components"
+                    <a href="https://github.com/uimaxbai/apple-music-web-components"
                     target="_blank"
                     rel="noopener noreferrer"
                     >Star me on GitHub</a
