@@ -27,7 +27,6 @@ Or, just use the CDN.
   duration=""
   highlight-color="#f00"
   hover-background-color="#e0e0e0"
-  hide-source-footer="false"
   font-family="'Inter', Arial, sans-serif"
   autoscroll
   interpolate
@@ -49,7 +48,7 @@ Or, just use the CDN.
 | `duration` | `number` | `undefined` | Playback timer duration in milliseconds. **Set to `-1` to reset/stop playback** |
 | `highlight-color` | `string` | `"#000"` | Color for highlighted/active lyrics |
 | `hover-background-color` | `string` | `"#f0f0f0"` | Background color on line hover |
-| `hide-source-footer` | `boolean` | `false` | Hide/show the source attribution footer |
+| ~~`hide-source-footer`~~ | `boolean` | `false` | Hide/show the source attribution footer |
 | `font-family` | `string` | `undefined` | Custom font family for lyrics |
 | `autoscroll` | `boolean` | `true` | Enable automatic scrolling to active lyrics |
 | `interpolate` | `boolean` | `true` | Enable smooth word-by-word highlighting animation |

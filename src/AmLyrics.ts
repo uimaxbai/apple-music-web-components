@@ -1,9 +1,9 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.5.4';
+const VERSION = '0.6.0';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
-const BASE_API_URL = 'https://paxsenix.alwaysdata.net/';
+
 const KPOE_SERVERS = [
   'https://lyricsplus.prjktla.workers.dev',
   'https://lyrics-plus-backend.vercel.app',
@@ -28,6 +28,8 @@ interface LyricsLine {
   timestamp: number;
   endtime: number;
   isWordSynced?: boolean;
+  alignment?: 'start' | 'end';
+  songPart?: string;
 }
 
 interface LyricsResponse {
@@ -221,10 +223,39 @@ export class AmLyrics extends LitElement {
       text-decoration: underline;
     }
 
-    .lyrics-footer.compact {
-      border-top: none;
-      margin-top: 0;
-      padding-top: 0;
+    .lyrics-footer .download-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #888;
+      padding: 0;
+      margin-left: 10px;
+      vertical-align: middle;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .lyrics-footer .download-button:hover {
+      color: #555;
+    }
+
+    .lyrics-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .footer-content {
+      display: flex;
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .footer-controls {
+      display: flex;
+      align-items: center;
     }
 
     /* Instrumental indicator */
@@ -251,6 +282,62 @@ export class AmLyrics extends LitElement {
       color: #aaa;
       font-size: 0.8em;
     }
+
+    .singer-right {
+      text-align: right;
+      justify-content: flex-end;
+    }
+
+    .singer-left {
+      text-align: left;
+      justify-content: flex-start;
+    }
+
+    /* Skeleton Loading */
+    @keyframes skeleton-loading {
+      0% {
+        background-color: hsl(200, 20%, 80%);
+      }
+      100% {
+        background-color: hsl(200, 20%, 95%);
+      }
+    }
+
+    .skeleton-line {
+      height: 2.5em; /* Taller to match lyrics */
+      margin: 20px 0; /* More spacing */
+      border-radius: 8px;
+      animation: skeleton-loading 1s linear infinite alternate;
+      opacity: 0.7;
+      width: 60%; /* Default width */
+    }
+
+    /* Varying widths for more natural look */
+    .skeleton-line:nth-child(even) {
+      width: 80%;
+    }
+    .skeleton-line:nth-child(3n) {
+      width: 50%;
+    }
+    .skeleton-line:nth-child(5n) {
+      width: 70%;
+    }
+
+    .format-select {
+      background: transparent;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      color: #888;
+      font-size: 0.8em;
+      margin-left: 10px;
+      padding: 2px 5px;
+      cursor: pointer;
+    }
+
+    .format-select:hover {
+      color: #555;
+      border-color: #aaa;
+    }
   `;
 
   @property({ type: String })
@@ -264,6 +351,9 @@ export class AmLyrics extends LitElement {
 
   @property({ type: String, attribute: 'song-title' })
   songTitle?: string;
+
+  @state()
+  private downloadFormat: 'auto' | 'lrc' | 'ttml' = 'auto';
 
   @property({ type: String, attribute: 'song-artist' })
   songArtist?: string;
@@ -279,9 +369,6 @@ export class AmLyrics extends LitElement {
 
   @property({ type: String, attribute: 'hover-background-color' })
   hoverBackgroundColor = '#f0f0f0';
-
-  @property({ type: Boolean, attribute: 'hide-source-footer' })
-  hideSourceFooter = false;
 
   @property({ type: String, attribute: 'font-family' })
   fontFamily?: string;
@@ -387,33 +474,6 @@ export class AmLyrics extends LitElement {
         }
       }
 
-      let fallbackAppleId = resolvedMetadata?.appleId ?? this.musicId;
-      let fallbackAppleSong = resolvedMetadata?.appleSong;
-
-      if (!fallbackAppleId && this.query) {
-        fallbackAppleSong =
-          fallbackAppleSong ??
-          (await this.searchAppleMusic(
-            this.query,
-            resolvedMetadata?.catalogIsrc ?? this.isrc,
-          ));
-
-        if (fallbackAppleSong) {
-          fallbackAppleId =
-            fallbackAppleSong.id ?? fallbackAppleSong.appleId ?? undefined;
-        }
-      }
-
-      const appleResult = await this.fetchLyricsFromApple(fallbackAppleId);
-
-      if (appleResult && appleResult.lines.length > 0) {
-        const spacedLines = AmLyrics.ensureAppleWordSpacing(appleResult.lines);
-        this.lyrics = spacedLines;
-        this.lyricsSource = appleResult.source ?? 'Apple Music';
-        this.onLyricsLoaded();
-        return;
-      }
-
       this.lyrics = undefined;
       this.lyricsSource = null;
     } finally {
@@ -453,7 +513,7 @@ export class AmLyrics extends LitElement {
       metadata.durationMs = this.duration;
     }
 
-    let appleSong: any = null;
+    const appleSong: any = null;
     let appleId = this.musicId;
     let catalogIsrc: string | undefined;
 
@@ -477,7 +537,7 @@ export class AmLyrics extends LitElement {
 
     let catalogResult: SongCatalogResult | null = null;
 
-    if (this.query) {
+    if (this.query && (!metadata.title || !metadata.artist)) {
       catalogResult = await AmLyrics.searchLyricsPlusCatalog(this.query);
 
       if (catalogResult) {
@@ -508,65 +568,6 @@ export class AmLyrics extends LitElement {
       }
     }
 
-    if (this.query) {
-      const needsMetadata = !metadata.title || !metadata.artist;
-      const needsAppleId = !appleId;
-
-      if (needsMetadata || needsAppleId) {
-        appleSong = await this.searchAppleMusic(
-          this.query,
-          catalogIsrc ?? this.isrc,
-        );
-
-        if (appleSong) {
-          if (needsAppleId && !appleId) {
-            appleId = appleSong.id ?? appleSong.appleId ?? undefined;
-          }
-
-          if (!metadata.title) {
-            const appleTitle =
-              appleSong?.attributes?.name || appleSong?.name || '';
-            if (appleTitle) {
-              metadata.title = appleTitle;
-            }
-          }
-          if (!metadata.artist) {
-            const appleArtist =
-              appleSong?.attributes?.artistName ||
-              appleSong?.artistName ||
-              appleSong?.artist ||
-              '';
-            if (appleArtist) {
-              metadata.artist = appleArtist;
-            }
-          }
-          if (!metadata.album) {
-            const appleAlbum =
-              appleSong?.attributes?.albumName ||
-              appleSong?.albumName ||
-              appleSong?.album;
-            if (appleAlbum) {
-              metadata.album = appleAlbum;
-            }
-          }
-
-          const durationCandidate =
-            appleSong?.attributes?.durationInMillis ??
-            appleSong?.durationInMillis ??
-            appleSong?.duration ??
-            undefined;
-
-          if (
-            metadata.durationMs == null &&
-            typeof durationCandidate === 'number' &&
-            durationCandidate > 0
-          ) {
-            metadata.durationMs = durationCandidate;
-          }
-        }
-      }
-    }
-
     const trimmedTitle = metadata.title?.trim() ?? '';
     const trimmedArtist = metadata.artist?.trim() ?? '';
     const trimmedAlbum = metadata.album?.trim();
@@ -593,46 +594,6 @@ export class AmLyrics extends LitElement {
       appleSong,
       catalogIsrc,
     };
-  }
-
-  private async searchAppleMusic(
-    searchTerm: string,
-    isrcMatch?: string,
-  ): Promise<any | null> {
-    const trimmedQuery = searchTerm?.trim();
-    if (!trimmedQuery) return null;
-
-    try {
-      const response = await fetch(
-        `${BASE_API_URL}searchAppleMusic.php?q=${encodeURIComponent(trimmedQuery)}`,
-      );
-      if (!response.ok) {
-        return null;
-      }
-
-      const decoded = await response.json();
-      if (!Array.isArray(decoded) || decoded.length === 0) {
-        return null;
-      }
-
-      const targetIsrc = (isrcMatch ?? this.isrc)?.trim();
-      if (targetIsrc) {
-        const match = decoded.find((item: any) => {
-          const candidateIsrc =
-            item?.isrc || item?.attributes?.isrc || item?.attributes?.isrcValue;
-          return (
-            typeof candidateIsrc === 'string' && candidateIsrc === targetIsrc
-          );
-        });
-        if (match) {
-          return match;
-        }
-      }
-
-      return decoded[0];
-    } catch (error) {
-      return null;
-    }
   }
 
   private static parseQueryMetadata(
@@ -771,36 +732,6 @@ export class AmLyrics extends LitElement {
     return null;
   }
 
-  private async fetchLyricsFromApple(
-    appleId?: string | null,
-  ): Promise<YouLyPlusLyricsResult | null> {
-    const resolvedId = appleId ?? this.musicId;
-    if (!resolvedId) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(
-        `${BASE_API_URL}getAppleMusicLyrics.php?id=${encodeURIComponent(resolvedId)}`,
-      );
-      if (!response.ok) {
-        return null;
-      }
-
-      const lyricsData: LyricsResponse = await response.json();
-      if (!lyricsData?.content || !Array.isArray(lyricsData.content)) {
-        return null;
-      }
-
-      return {
-        lines: lyricsData.content,
-        source: lyricsData.info || 'Apple Music',
-      };
-    } catch (error) {
-      return null;
-    }
-  }
-
   private static convertKPoeLyrics(payload: any): LyricsLine[] | null {
     if (!payload) {
       return null;
@@ -824,7 +755,47 @@ export class AmLyrics extends LitElement {
 
     const isLineType = payload.type === 'Line';
 
+    // Convert metadata.agents to alignment map
+    const agents = payload.metadata?.agents ?? {};
+    const agentEntries = Object.entries(agents);
+    const singerAlignmentMap: Record<string, 'start' | 'end'> = {};
+
+    if (agentEntries.length > 0) {
+      agentEntries.sort((a, b) => a[0].localeCompare(b[0]));
+
+      const personAgents = agentEntries.filter(
+        ([_, agentData]: [string, any]) => agentData.type === 'person',
+      );
+      const personIndexMap = new Map();
+      personAgents.forEach(([agentKey], personIndex) => {
+        personIndexMap.set(agentKey, personIndex);
+      });
+
+      agentEntries.forEach(([agentKey, agentData]: [string, any]) => {
+        if (agentData.type === 'group') {
+          singerAlignmentMap[agentKey] = 'start';
+        } else if (agentData.type === 'other') {
+          singerAlignmentMap[agentKey] = 'end';
+        } else if (agentData.type === 'person') {
+          const personIndex = personIndexMap.get(agentKey);
+          if (personIndex !== undefined) {
+            singerAlignmentMap[agentKey] =
+              personIndex % 2 === 0 ? 'start' : 'end';
+          }
+        }
+      });
+    }
+
     for (const entry of sanitizedEntries) {
+      const start = Number(entry.time);
+      const duration = Number(entry.duration);
+
+      // Determine alignment
+      let alignment: 'start' | 'end' | undefined;
+      const singerId = entry.element?.singer;
+      if (singerId && singerAlignmentMap[singerId]) {
+        alignment = singerAlignmentMap[singerId];
+      }
       const lineText = typeof entry.text === 'string' ? entry.text : '';
       const lineStart = AmLyrics.toMilliseconds(entry.time);
       const lineDuration = AmLyrics.toMilliseconds(entry.duration);
@@ -866,6 +837,9 @@ export class AmLyrics extends LitElement {
         });
       }
 
+      const hasWordSync =
+        mainSyllables.length > 0 || backgroundSyllables.length > 0;
+
       const lineResult: LyricsLine = {
         text: mainSyllables,
         background: backgroundSyllables.length > 0,
@@ -875,70 +849,16 @@ export class AmLyrics extends LitElement {
             entry.element.includes('right')
           : false,
         timestamp: lineStart,
-        endtime: lineEnd || lineStart,
-        isWordSynced: !isLineType,
+        endtime: start + duration,
+        isWordSynced: hasWordSync,
+        alignment,
+        songPart: entry.element?.songPart,
       };
 
       lines.push(lineResult);
     }
 
     return lines;
-  }
-
-  private static ensureAppleWordSpacing(lines: LyricsLine[]): LyricsLine[] {
-    return lines.map(line => ({
-      ...line,
-      text: AmLyrics.applySpacingToSyllables(line.text),
-      backgroundText: line.backgroundText
-        ? AmLyrics.applySpacingToSyllables(line.backgroundText)
-        : line.backgroundText,
-    }));
-  }
-
-  private static applySpacingToSyllables(syllables: Syllable[]): Syllable[] {
-    if (!Array.isArray(syllables)) {
-      return syllables;
-    }
-
-    return syllables.map((syllable, index) => {
-      if (!syllable || typeof syllable.text !== 'string') {
-        return syllable;
-      }
-
-      const next = syllables[index + 1];
-      const shouldAppendSpace =
-        Boolean(next) &&
-        !next?.part &&
-        !syllable.text.endsWith(' ') &&
-        !AmLyrics.endsWithNoSpaceMarker(syllable.text) &&
-        !AmLyrics.startsWithPunctuation(next?.text ?? '');
-
-      if (shouldAppendSpace) {
-        return { ...syllable, text: `${syllable.text} ` };
-      }
-
-      return syllable;
-    });
-  }
-
-  private static startsWithPunctuation(text: string): boolean {
-    return /^[\s.,!?;:)\]}`“”"'’`-]/.test(text);
-  }
-
-  private static endsWithNoSpaceMarker(text: string): boolean {
-    return /[\s\-–—~'’]$/.test(text);
-  }
-
-  private static shouldApplySyllableMargin(syllable: Syllable | undefined) {
-    if (!syllable || syllable.part) {
-      return false;
-    }
-
-    if (typeof syllable.text !== 'string' || syllable.text.length === 0) {
-      return false;
-    }
-
-    return !AmLyrics.endsWithNoSpaceMarker(syllable.text);
   }
 
   private static toMilliseconds(value: unknown, fallback = 0): number {
@@ -1507,6 +1427,151 @@ export class AmLyrics extends LitElement {
     }
   }
 
+  private generateLRC(): string {
+    if (!this.lyrics) return '';
+    let lrc = '';
+
+    // Add metadata if available
+    if (this.songTitle) lrc += `[ti:${this.songTitle}]\n`;
+    if (this.songArtist) lrc += `[ar:${this.songArtist}]\n`;
+    if (this.songAlbum) lrc += `[al:${this.songAlbum}]\n`;
+    if (this.lyricsSource) lrc += `[re:${this.lyricsSource}]\n`;
+
+    for (const line of this.lyrics) {
+      if (line.text && line.text.length > 0) {
+        const timestamp = AmLyrics.formatTimestampLRC(line.timestamp);
+        // Construct line text from syllables
+        const lineText = line.text
+          .map(s => s.text)
+          .join('')
+          .trim();
+        lrc += `[${timestamp}]${lineText}\n`;
+      }
+    }
+
+    return lrc;
+  }
+
+  private generateTTML(): string {
+    if (!this.lyrics) return '';
+
+    // Basic TTML structure
+    let ttml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    ttml +=
+      '<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyrics">\n';
+    ttml += '  <body>\n';
+
+    let currentPart: string | undefined;
+
+    for (let i = 0; i < this.lyrics.length; i += 1) {
+      const line = this.lyrics[i];
+      const part = line.songPart;
+
+      // If part changed (or first line), start new div
+      if (part !== currentPart || i === 0) {
+        if (i > 0) {
+          ttml += '    </div>\n';
+        }
+        currentPart = part;
+        if (currentPart) {
+          ttml += `    <div itunes:song-part="${currentPart}">\n`;
+        } else {
+          ttml += '    <div>\n';
+        }
+      }
+
+      // For TTML, we can represent syllables as spans if word-synced
+      const begin = AmLyrics.formatTimestampTTML(line.timestamp);
+      const end = AmLyrics.formatTimestampTTML(line.endtime);
+
+      ttml += `      <p begin="${begin}" end="${end}">\n`;
+
+      for (const word of line.text) {
+        const wBegin = AmLyrics.formatTimestampTTML(word.timestamp);
+        const wEnd = AmLyrics.formatTimestampTTML(word.endtime);
+        // Escape special characters in text
+        const text = word.text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        ttml += `        <span begin="${wBegin}" end="${wEnd}">${text}</span>\n`;
+      }
+
+      ttml += '      </p>\n';
+    }
+
+    if (this.lyrics.length > 0) {
+      ttml += '    </div>\n';
+    }
+
+    ttml += '  </body>\n';
+    ttml += '</tt>';
+
+    return ttml;
+  }
+
+  private static formatTimestampLRC(ms: number): string {
+    const totalSeconds = ms / 1000;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    const hundredths = Math.floor((ms % 1000) / 10);
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(minutes)}:${pad(seconds)}.${pad(hundredths)}`;
+  }
+
+  private static formatTimestampTTML(ms: number): string {
+    // TTML standard format: HH:MM:SS.mmm
+    const totalSeconds = ms / 1000;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    const milliseconds = Math.floor(ms % 1000);
+
+    const pad = (n: number, width = 2) => n.toString().padStart(width, '0');
+    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(milliseconds, 3)}`;
+  }
+
+  private downloadLyrics() {
+    if (!this.lyrics || this.lyrics.length === 0) return;
+
+    // Determine format: TTML if ANY line is word-synced, else LRC
+    const isWordSynced = this.lyrics.some(l => l.isWordSynced !== false);
+
+    let content = '';
+    let extension = this.downloadFormat;
+    if (extension === 'auto') {
+      extension = isWordSynced ? 'ttml' : 'lrc';
+    }
+    let mimeType = '';
+
+    if (extension === 'ttml') {
+      content = this.generateTTML();
+      mimeType = 'application/xml';
+    } else {
+      content = this.generateLRC();
+      mimeType = 'text/plain';
+    }
+
+    if (!content) return;
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    const filename = this.songTitle
+      ? `${this.songTitle}${this.songArtist ? ` - ${this.songArtist}` : ''}.${extension}`
+      : `lyrics.${extension}`;
+
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   render() {
     if (this.fontFamily) {
       this.style.fontFamily = this.fontFamily;
@@ -1524,7 +1589,16 @@ export class AmLyrics extends LitElement {
 
     const renderContent = () => {
       if (this.isLoading) {
-        return html`<div class="loading-indicator">Loading...</div>`;
+        // Render stylized skeleton lines
+        return html`
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+        `;
       }
       if (!this.lyrics || this.lyrics.length === 0) {
         return html`<div class="no-lyrics">No lyrics found.</div>`;
@@ -1574,11 +1648,7 @@ export class AmLyrics extends LitElement {
                 return html`<span
                   class="progress-text"
                   style="--line-progress: ${progress *
-                  100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
-                    syllable,
-                  )
-                    ? '.5ch'
-                    : '0'}; --transition-style: ${isLineActive
+                  100}%; margin-right: 0; --transition-style: ${isLineActive
                     ? 'all'
                     : 'color'}"
                   >${syllable.text}</span
@@ -1615,11 +1685,9 @@ export class AmLyrics extends LitElement {
             return html`<span
               class="progress-text"
               style="--line-progress: ${progress *
-              100}%; margin-right: ${AmLyrics.shouldApplySyllableMargin(
-                syllable,
-              )
-                ? '.5ch'
-                : '0'}; --transition-style: ${isLineActive ? 'all' : 'color'}"
+              100}%; margin-right: 0; --transition-style: ${isLineActive
+                ? 'all'
+                : 'color'}"
               >${syllable.text}</span
             >`;
           })}
@@ -1646,7 +1714,10 @@ export class AmLyrics extends LitElement {
           <div
             class="lyrics-line ${line.oppositeTurn
               ? 'opposite-turn'
-              : ''} ${isLineActive ? 'active-line' : ''}"
+              : ''} ${isLineActive ? 'active-line' : ''} ${line.alignment ===
+            'end'
+              ? 'singer-right'
+              : 'singer-left'}"
             @click=${() => this.handleLineClick(line)}
             tabindex="0"
             @keydown=${(e: KeyboardEvent) => {
@@ -1667,19 +1738,58 @@ export class AmLyrics extends LitElement {
       <div class="lyrics-container">
         ${renderContent()}
         ${!this.isLoading
-          ? html` <footer
-              class="lyrics-footer ${this.hideSourceFooter ? 'compact' : ''}"
-            >
-              ${!this.hideSourceFooter
-                ? html`<p>Source: ${sourceLabel}</p>`
-                : ''}
-              v${VERSION} •
-              <a
-                href="https://github.com/uimaxbai/apple-music-web-components"
-                target="_blank"
-                rel="noopener noreferrer"
-                >Star me on GitHub
-              </a>
+          ? html` <footer class="lyrics-footer">
+              <div class="footer-content">
+                <span class="source-info">Source: ${sourceLabel}</span>
+                <span class="version-info">
+                  v${VERSION} •
+                  <a
+                    href="https://github.com/uimaxbai/apple-music-web-components"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Star me on GitHub</a
+                  >
+                </span>
+              </div>
+              <div class="footer-controls">
+                ${this.lyrics && this.lyrics.length > 0
+                  ? html`<select
+                        class="format-select"
+                        @change=${(e: Event) => {
+                          this.downloadFormat = (e.target as HTMLSelectElement)
+                            .value as 'lrc' | 'ttml';
+                        }}
+                        .value=${this.downloadFormat}
+                        @click=${(e: Event) => e.stopPropagation()}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="lrc">LRC</option>
+                        <option value="ttml">TTML</option>
+                      </select>
+                      <button
+                        class="download-button"
+                        @click=${this.downloadLyrics}
+                        title="Download Lyrics"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          class="lucide lucide-download-icon lucide-download"
+                        >
+                          <path d="M12 15V3" />
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <path d="m7 10 5 5 5-5" />
+                        </svg>
+                      </button>`
+                  : ''}
+              </div>
             </footer>`
           : ''}
       </div>
