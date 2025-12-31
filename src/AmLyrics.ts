@@ -223,7 +223,7 @@ export class AmLyrics extends LitElement {
       text-decoration: underline;
     }
 
-    .lyrics-footer .download-button {
+    .lyrics-header .download-button {
       background: none;
       border: none;
       cursor: pointer;
@@ -235,7 +235,7 @@ export class AmLyrics extends LitElement {
       align-items: center;
     }
 
-    .lyrics-footer .download-button:hover {
+    .lyrics-header .download-button:hover {
       color: #555;
     }
 
@@ -341,13 +341,10 @@ export class AmLyrics extends LitElement {
 
 
     .lyrics-header {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    padding: 10px 0;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #EEE;
-    gap: 10px;
+      display: flex;
+      padding: 10px 0;
+      margin-bottom: 10px;
+      gap: 4px;
     }
   `;
 
