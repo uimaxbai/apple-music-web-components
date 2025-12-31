@@ -1,7 +1,7 @@
 import { html, css, LitElement } from 'lit';
 import { property, state, query } from 'lit/decorators.js';
 
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 const INSTRUMENTAL_THRESHOLD_MS = 3000; // Show ellipsis for gaps >= 3s
 
 const KPOE_SERVERS = [
@@ -338,7 +338,6 @@ export class AmLyrics extends LitElement {
       color: #555;
       border-color: #aaa;
     }
-
 
     .lyrics-header {
       display: flex;
@@ -1742,52 +1741,52 @@ export class AmLyrics extends LitElement {
       });
     };
 
-return html`
-    <div class="lyrics-container">
-      ${!this.isLoading && this.lyrics && this.lyrics.length > 0
-        ? html`
-            <div class="lyrics-header">
-              <select
-                class="format-select"
-                @change=${(e: Event) => {
-                  this.downloadFormat = (e.target as HTMLSelectElement)
-                    .value as 'lrc' | 'ttml';
-                }}
-                .value=${this.downloadFormat}
-                @click=${(e: Event) => e.stopPropagation()}
-              >
-                <option value="auto">Auto</option>
-                <option value="lrc">LRC</option>
-                <option value="ttml">TTML</option>
-              </select>
-              <button
-                class="download-button"
-                @click=${this.downloadLyrics}
-                title="Download Lyrics"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="lucide lucide-download-icon lucide-download"
+    return html`
+      <div class="lyrics-container">
+        ${!this.isLoading && this.lyrics && this.lyrics.length > 0
+          ? html`
+              <div class="lyrics-header">
+                <select
+                  class="format-select"
+                  @change=${(e: Event) => {
+                    this.downloadFormat = (e.target as HTMLSelectElement)
+                      .value as 'lrc' | 'ttml';
+                  }}
+                  .value=${this.downloadFormat}
+                  @click=${(e: Event) => e.stopPropagation()}
                 >
-                  <path d="M12 15V3" />
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="m7 10 5 5 5-5" />
-                </svg>
-              </button>
-            </div>
-          `
-        : ''}
-      ${renderContent()}
-      ${!this.isLoading
-        ? html`
+                  <option value="auto">Auto</option>
+                  <option value="lrc">LRC</option>
+                  <option value="ttml">TTML</option>
+                </select>
+                <button
+                  class="download-button"
+                  @click=${this.downloadLyrics}
+                  title="Download Lyrics"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="lucide lucide-download-icon lucide-download"
+                  >
+                    <path d="M12 15V3" />
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <path d="m7 10 5 5 5-5" />
+                  </svg>
+                </button>
+              </div>
+            `
+          : ''}
+        ${renderContent()}
+        ${!this.isLoading
+          ? html`
             <footer class="lyrics-footer">
               <div class="footer-content">
                 <span class="source-info">Source: ${sourceLabel}</span>
@@ -1803,6 +1802,8 @@ return html`
               </div>
             </footer>
           `
-        : ''}
-    </div>
-  `;
+          : ''}
+      </div>
+    `;
+  }
+}
